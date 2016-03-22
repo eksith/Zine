@@ -4,8 +4,9 @@ A simple, single-file script to quickly create posts
 Zine requires no database and doesn't include a lot of features. It is  
 specifically meant for creating content for a single user.
 
-Settings are managed via the **/manage** route. Create new posts via **/new**  
-which require the author to use **/login.**
+Settings are managed via the **/manage** route which also allows changing  
+the default password. Create new posts via **/new** which requires the  
+author to use **/login**.
 
 The default password is password
 
@@ -20,6 +21,7 @@ already comes bungled with PHP.
 
   - PHP 5.6 or greater ( 7+ preferable )  
   - Web server that allows friendly URLs ( Apache .htaccess provided )  
+  - Read and write permissions to the storage folder
 
 
 ## Purpose
