@@ -1184,6 +1184,10 @@ function indexPages( $args, $conf, $paths ) {
 	$pm1	= $page - 1;
 	if ( $page > 1 ) {
 		if ( 0 <= $pm1 ) {
+			if ( count( $paths ) < $conf['post_limit'] ) {
+				$npa .= 
+				pageLink( 'Previous', 'page'. $pm1 );
+			}
 			$npa .= 
 			pageLink( 'Home', '/' );
 		} else {
@@ -1197,12 +1201,13 @@ function indexPages( $args, $conf, $paths ) {
 	}
 	
 	if ( 
-		count( $paths ) <= $conf['post_limit'] && 
-		$page >= 1 
+		count( $paths ) >= $conf['post_limit'] && 
+		$page >= 1
 	) {
 		$npa .= 
 		pageLink( 'Next', 'page'. ( $page + 1 ) );
 	}
+	
 	return $npa;
 }
 
