@@ -347,6 +347,20 @@ function sortByModified( $posts ) {
 }
 
 /**
+ * Sort returned file paths by last modified date
+ */
+function sortByDatePath( $post ) {
+	# Root path + the date - post slug
+	$i = strlen( postRoot() ) + 11;
+	
+	usort( $post, function( $a, $b ) use ( $i ) {
+		return ( strncmp( $a, $b, $i ) <= 0 );
+	} );
+	
+	return $post;
+}
+
+/**
  * Search for posts in a day/month/year range
  */
 function searchDays( $args ) {
@@ -363,7 +377,7 @@ function searchDays( $args ) {
 	$search	= postRoot() . $s . implode( $s, $args ) . $s;
 	$posts	= glob( $search . $f, \GLOB_NOSORT );
 	
-	return sortByModified( $posts );
+	return sortByDatePath( $posts );
 }
 
 /**
