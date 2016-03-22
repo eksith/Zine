@@ -1364,7 +1364,7 @@ function validateCsrf( $form, $hash ) {
 }
 
 /**
- * Generate cryptographically secure seudorandom bytes
+ * Generate cryptographically secure pseudorandom bytes
  */
 function bytes( $len ) {
 	if ( exists( 'random_bytes' ) ) {
