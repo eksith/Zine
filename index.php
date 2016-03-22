@@ -390,7 +390,6 @@ function searchDays( $args ) {
  * Parse archive search request
  */
 function findArchive( $args ) {
-	$s	= \DIRECTORY_SEPARATOR;
 	if ( isset( $args['day'] ) ) {
 		$days = array(
 			'year'	=> $args['year'],
@@ -452,7 +451,7 @@ function siblingPosts( $args ) {
 		}
 	}
 	
-	return $siblings;
+	return sortByDatePath( $siblings );
 }
 
 /**
@@ -469,11 +468,11 @@ function nextPrev( $args ) {
 	$k	= array_search( $current, $siblings );
 	
 	if ( $k > 0 ) {
-		$np['prev'] = $siblings[$k - 1];
+		$np[] = $siblings[$k - 1];
 	}
 	
 	if ( $k < count( $siblings ) - 1 ) {
-		$np['next'] = $siblings[$k + 1];
+		$np[] = $siblings[$k + 1];
 	}
 	
 	return $np;
@@ -1159,13 +1158,13 @@ function parsePosts( $posts, $conf ) {
 	$parsed	= '';
 	foreach( $posts as $post ) {
 		$pdate	= date( $conf['date_format'], $post['pubdate'] );
+		$ppath	= datePath( $post['slug'], $post['pubdate'] );
 		$vars	= 
 		array(
 			'post_title'	=> $post['title'],
 			'post_body'	=> $post['body'],
 			'post_date'	=> $pdate,
-			'post_path'	=> 
-				datePath( $post['slug'], $post['pubdate'] )
+			'post_path'	=> $ppath
 		);
 		
 		$parsed .= render( $vars, $ptpl );
@@ -1217,8 +1216,13 @@ function indexPages( $args, $conf, $paths ) {
 function siblingPages( $pages ) {
 	$npa	= '';
 	$sibs	= loadPosts( $pages );
-	foreach( $sibs as $s ) {
-		$path	= '/read/' . datePath( $s['slug'], $s['pubdate'] );
+	$i	= strlen( postRoot() ) + 1;
+	
+	foreach( $sibs as $k => $s ) {
+		# Remove the root and '/blog.post'
+		$p	= substr( substr( $pages[$k], 0, -10 ), $i );
+		
+		$path	= '/read/' . $p;
 		$tool	= entities( $s['summary'], true );
 		$npa	.= pageLink( $s['title'], $path, $tool );
 	}
