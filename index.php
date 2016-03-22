@@ -354,7 +354,13 @@ function sortByDatePath( $post ) {
 	$i = strlen( postRoot() ) + 11;
 	
 	usort( $post, function( $a, $b ) use ( $i ) {
-		return ( strncmp( $a, $b, $i ) <= 0 );
+		$c = strncmp( $a, $b, $i );
+		
+		# If the posts were created on the same day, 
+		# sort by created date (modified date on *nix)
+		return ( 0 === $c ) ? 
+			( filectime( $b ) - filectime( $a ) ) : 
+			( $c <= 0 );
 	} );
 	
 	return $post;
