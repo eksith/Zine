@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns='http://www.w3.org/1999/xhtml' dir='ltr'>
+<head>
+<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
+<meta name='viewport' content='width=device-width' />
+<link rel='stylesheet' href='{theme}style.css' />
+<title>{page_title}</title>
+</head>
+<body>
+<header>
+	<h1><a href='/'>{page_title}</a></h1>
+</header>
+
+<article class='post'>
+	<form action='/new' method='post' enctype='multipart/form-data'>
+		<input type='hidden' name='csrf' value='{csrf}' />
+		<p><input type='text' name='title' required placeholder='Title' /></p>
+		<p><textarea rows='5' cols='60' name='body' required placeholder='Body'></textarea></p>
+		
+		<p><input type='text' name='slug' placeholder='path-to-post' />  
+			<input type='submit' value='post' /></p>
+		
+		<!--<p><label class='file btn'>Upload files <input type='file' multiple='multiple' name='attach' /></label></p>-->
+	</form>
+</article>
+</body>
+</html>
