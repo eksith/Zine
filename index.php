@@ -23,7 +23,7 @@ define( 'MSG_LOGOUT',	"<p>You have logged out successfully. Back to the <a href=
 define( 'MSG_LOGININV',	"<p>Invalid login. Please try <a href='/login'>again</a>." );
 define( 'MSG_LOGINGG',	"<p>Login successful. Back to the <a href='/'>front page</a>, create a <a href='/new'>new post</a> or enter the <a href='/manage'>site settings</a> area.</p>" );
 
-define( 'MSG_PASSCH',	"<p>Password successfully changed</p>" );
+define( 'MSG_PASSCH',	"<p>Password successfully changed. Back to the <a href='/'>front page</a>, create a <a href='/new'>new post</a> or return to the <a href='/manage'>site settings</a> area.</p>" );
 
 define( 'MSG_NOPOSTS',	"<p>Couldn't find any more posts. Back to the <a href='/'>front page</a>.</p>" );
 define( 'MSG_NOTFOUND', "<p>Couldn't find the post you're looking for. Back to the <a href='/'>front page</a>.</p>" );
@@ -664,6 +664,20 @@ function verifyPassword( $password, $stored ) {
 }
 
 /**
+ * Checks if the current password needs to be rehashed
+ */
+function passNeedsRehash( $stored ) {
+	$stored = base64_decode( $stored, true );
+	if ( false === $stored ) {
+		return false;
+	}
+	
+	return 
+	\password_needs_rehash( $stored, \PASSWORD_DEFAULT );
+}
+
+
+/**
  * Check authorization
  */
 function auth() {
@@ -1185,14 +1199,16 @@ function indexPages( $args, $conf, $paths ) {
 		if ( 0 <= $pm1 ) {
 			if ( count( $paths ) < $conf['post_limit'] ) {
 				$npa .= 
-				pageLink( 'Previous', 'page'. $pm1 );
+				pageLink( 'Next', 'page'. $pm1 );
 			}
 			$npa .= 
 			pageLink( 'Home', '/' );
 		} else {
 			$npa .= 
-			pageLink( 'Previous', 'page'. $pm1 );
+			pageLink( 'Next', 'page'. $pm1 );
 		}
+	} else {
+		$npa .= '<li></li>';
 	}
 	
 	if ( empty( $paths ) ) {
@@ -1204,10 +1220,31 @@ function indexPages( $args, $conf, $paths ) {
 		$page >= 1
 	) {
 		$npa .= 
-		pageLink( 'Next', 'page'. ( $page + 1 ) );
+		pageLink( 'Previous', 'page'. ( $page + 1 ) );
 	}
 	
 	return $npa;
+}
+
+/**
+ * Extract the date and slug from the full post path
+ */
+function dateAndSlug( $path ) {
+	$i = strlen( postRoot() ) + 1;
+	
+	# Remove the root and '/blog.post'
+	return substr( substr( $path, 0, -10 ), $i );
+}
+
+/**
+ * Extract the date and slug from the full post path
+ */
+function dateWithoutSlug( $path ) {
+	$path	= rtrim( $path, '\\' );
+	$i	= strrpos( $path, '\\' );
+	
+	$p	= substr( $path, 0, $i );
+	return str_replace( '\\', '/', $p );
 }
 
 /**
@@ -1219,8 +1256,7 @@ function siblingPages( $pages ) {
 	$i	= strlen( postRoot() ) + 1;
 	
 	foreach( $sibs as $k => $s ) {
-		# Remove the root and '/blog.post'
-		$p	= substr( substr( $pages[$k], 0, -10 ), $i );
+		$p	= dateAndSlug( $pages[$k] );
 		
 		$path	= '/read/' . $p;
 		$tool	= entities( $s['summary'], true );
@@ -1641,7 +1677,11 @@ function() {
 	if ( !empty( $pages ) ) {
 		$npa = siblingPages( $pages );
 	}
-	$pdate	= date( $conf['date_format'], $post['pubdate'] );
+	$path	= exactPost( $args );
+	$pdate	= dateWithoutSlug( dateAndSlug( $path ) );
+	$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
+	
+	
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
@@ -1786,7 +1826,13 @@ function() {
 	$stored	= $conf['password'];
 	if ( verifyPassword( $data, $stored ) ) {
 		setAuth();
+		
+		if ( passNeedsRehash( $stored ) ) {
+			$conf['password'] = password( $data );
+			saveConf( $conf );
+		}
 		message( MSG_LOGINGG );
+		
 	} else {
 		message( MSG_LOGININV, true );
 	}
