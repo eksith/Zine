@@ -15,7 +15,7 @@ strongly recommended that no other permissions are allowed.
 
 Zine requires minimal resources and no database. Backing up is a matter  
 of copying the storage directory. There are no special functionality  
-required besides what already comes budled with PHP.
+required besides what already comes bundled with PHP.
 
 ## Requirements  
 
