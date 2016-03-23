@@ -1141,7 +1141,12 @@ function clean( $html, $white, $parse = false ) {
 	$html		= makeParagraphs( $html );
 	$html		= tidyup( $html );
 	$old		= new \DOMDocument();
-	$old->loadHTML( $html );
+	$old->loadHTML( 
+		$html, 
+		\LIBXML_HTML_NOIMPLIED | \LIBXML_HTML_NODEFDTD | 
+		\LIBXML_NOERROR | \LIBXML_NOWARNING | 
+		\LIBXML_NOXMLDECL 
+	);
 	
 	$oldBody	= 
 		$old->getElementsByTagName( 'body' )->item( 0 );
