@@ -19,7 +19,9 @@
 		<p><textarea rows='5' cols='60' name='body' required placeholder='Body'>{post_body}</textarea></p>
 		
 		<p><input type='text' name='slug' placeholder='path-to-post' value='{post_slug}' /></p> 
-		<p><input type='submit' value='Save changes' /></p>
+		<p><textarea rows='2' cols='60' name='summary' placeholder='Summary'>{post_summary}</textarea></p>
+		
+		<p><input type='submit' value='Save changes' /> | <input type='submit' name='draft' value='Save to draft' /></p>
 		<!--<p><label class='file btn'>Upload files <input type='file' multiple='multiple' name='attach' /></label></p>-->
 		<p><label><input type='checkbox' name='delpost' value='1' /> Delete this post (this cannot be undone)</label></p>
 	</form>
