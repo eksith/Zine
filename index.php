@@ -330,22 +330,30 @@ function saveUploads( $path, $data ) {
 	$files	= fileSort();
 	$store	= $root . $s . $path . $s;
 	
-	
 }
-
 
 /**
  * Remove a post permanently
  */
-function deletePost( $path ) {
+function deletePost( $path, $draft ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	$root	= postRoot();
 	$file	= $root . $s . $path . $s . POST_FILE;
+	$draft	= $root . $s . $path . $s . DRAFT_FILE;
+	$del	= false;
 	
 	if ( file_exists( $file ) ) {
 		if ( unlink( $file ) ) {
-			message( MSG_POSTDEL );
+			$del = true;
 		}
+	}
+	if ( file_exists( $draft ) ) {
+		if ( unlink( $draft ) ) {
+			$del = true;
+		}
+	}
+	if ( $del ) {
+		message( MSG_POSTDEL );
 	}
 	
 	message( MSG_POSTNDEL );
@@ -379,21 +387,28 @@ function sortByModified( $post, $drafts = false ) {
 /**
  * Search for posts in a day/month/year range
  */
-function searchDays( $args, $drafts = false ) {
+function searchDays( $args ) {
 	$s	= \DIRECTORY_SEPARATOR;
-	$p	= $drafts ? DRAFT_FILE : POST_FILE;
+	$p	= fileByMode( $args );
+	$params	= array();
 	
 	if ( isset( $args['day'] ) ) {
-		$f = '*' . $s . $p;
+		$params['day']	= $args['day'];
+		$f		= '*' . $s . $p;
 	}
 	if ( isset( $args['month'] ) ) {
-		$f	= '*' . $s . '*' . $s . $p;
+		$params['month']	= $args['month'];
+		$f		= '*' . $s . '*' . $s . $p;
 	}
 	if ( isset( $args['year'] ) ) {
-		$f	= '*'. $s .'*'. $s .'*'. $s . $p;
+		$params['year']	= $args['year'];
+		$f		= 
+			'*'. $s .'*'. $s .'*'. $s . $p;
 	}
-	$search	= postRoot() . $s . implode( $s, $args ) . $s;
+	$params	= array_reverse( $params );
+	$search	= postRoot() . $s . implode( $s, $params ) . $s;
 	$posts	= glob( $search . $f, \GLOB_NOSORT );
+	$drafts	= ( $p == POST_FILE ) ? true : false;
 	
 	return sortByModified( $posts, $drafts );
 }
@@ -418,9 +433,9 @@ function findArchive( $args ) {
 	if ( isset( $args['year'] ) ) {
 		$days = array( 'year'=> $args['year'] );
 	}
-	$drafts	= ( fileByMode( $args ) == DRAFT_FILE ) ? 
-			true : false;
-	return searchDays( $days, $drafts );
+	$days['mode']	= isset( $args['mode'] ) ?
+				$args['mode'] : null;
+	return searchDays( $days );
 }
 
 /**
