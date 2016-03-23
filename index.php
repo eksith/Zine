@@ -1164,8 +1164,6 @@ function clean( $html, $white, $parse = false ) {
 	
 	\libxml_clear_errors();
 	\libxml_use_internal_errors( $err );
-	var_dump( $clean );
-	die();
 	return trim( $clean );
 }
 
