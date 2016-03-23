@@ -24,6 +24,10 @@ define( 'DRAFT_FILE',	'draft.post' );
 # Year limit to end when searching for posts
 define( 'YEAR_END',	2000 );
 
+# Default length of the auto-generated summary
+define( 'SUMMARY_LEN', 200 );
+
+
 /**
  * Common messages
  */
@@ -235,8 +239,9 @@ function getPost() {
 	
 	$data['summary']	= 
 		empty( $data['summary'] ) ? 
-			smartTrim( strip_tags( $data['body'] ), 200 ) : 
-			clean( $data['summary'] );
+			smartTrim( strip_tags( $data['body'] ), 
+				SUMMARY_LEN ) : 
+			strip_tags( clean( $data['summary'] ) );
 	
 	$data['slug']		= 
 		slugify( $data['title'], $data['slug'] );
@@ -577,9 +582,10 @@ function exactPost( $args ) {
 		$args['year'], $args['month'], 
 		$args['day'], $args['slug']
 	);
+	$p	= fileByMode( $args );
 	
 	return postRoot() . $s . implode( $s, $path ) . 
-		$s . POST_FILE;
+		$s . $p;
 }
 
 /**
@@ -1232,12 +1238,17 @@ function pageLink( $text, $url, $tool = '' ) {
 /**
  * Format each post into the post template
  */
-function parsePosts( $posts, $conf ) {
+function parsePosts( $posts, $paths, $args, $conf ) {
 	$ptpl	= loadTpl( 'tpl_postfrag.html' );
 	$parsed	= '';
+	$i	= 0;
+	
 	foreach( $posts as $post ) {
-		$pdate	= date( $conf['date_format'], $post['pubdate'] );
-		$ppath	= datePath( $post['slug'], $post['pubdate'] );
+		$pdate	= dateWithoutSlug( dateAndSlug( $paths[$i], $args ) );
+		$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
+		
+		$ppath	= datePath( $post['slug'], strtotime( $pdate ) );
+		
 		$vars	= 
 		array(
 			'post_title'	=> $post['title'],
@@ -1247,6 +1258,7 @@ function parsePosts( $posts, $conf ) {
 		);
 		
 		$parsed .= render( $vars, $ptpl );
+		$i++;
 	}
 	
 	return $parsed;
@@ -1294,11 +1306,11 @@ function indexPages( $args, $conf, $paths ) {
 /**
  * Extract the date and slug from the full post path
  */
-function dateAndSlug( $path ) {
+function dateAndSlug( $path, $args ) {
 	$i = strlen( postRoot() ) + 1;
-	
+	$p = fileByMode( $args );
 	# Remove the root and '/POST_FILE'
-	$f = strlen( POST_FILE );
+	$f = strlen( $p );
 	return substr( substr( $path, 0, -$f ), $i );
 }
 
@@ -1316,15 +1328,17 @@ function dateWithoutSlug( $path ) {
 /**
  * Next and previous post links 
  */
-function siblingPages( $pages ) {
+function siblingPages( $pages, $args ) {
 	$npa	= '';
 	$sibs	= loadPosts( $pages );
 	$i	= strlen( postRoot() ) + 1;
+	$mode	= isset( $args['mode'] ) ? 
+			$args['mode'] : 'read';
 	
 	foreach( $sibs as $k => $s ) {
-		$p	= dateAndSlug( $pages[$k] );
+		$p	= dateAndSlug( $pages[$k], $args );
 		
-		$path	= '/read/' . $p;
+		$path	= '/' . $mode . '/' . $p;
 		$tool	= entities( $s['summary'], true );
 		$npa	.= pageLink( $s['title'], $path, $tool );
 	}
@@ -1600,7 +1614,8 @@ function route( $routes ) {
 		':year'	=> '(?<year>[2][0-9]{3})',
 		':month'=> '(?<month>[0-3][0-9]{1})',
 		':day'	=> '(?<day>[0-9][0-9]{1})',
-		':slug'	=> '(?<slug>[\pL\-\d]{1,100})'
+		':slug'	=> '(?<slug>[\pL\-\d]{1,100})',
+		':mode'	=> '(?<mode>edit|drafts)'
 	);
 	$k		= array_keys( $markers );
 	$v		= array_values( $markers );
@@ -1667,7 +1682,7 @@ function() {
 	if ( empty( $posts ) ) {
 		message( MSG_NOPOSTS );
 	}
-	$parsed	= parsePosts( $posts, $conf );
+	$parsed	= parsePosts( $posts, $paths, $args, $conf );
 	$npa	= indexPages( $args, $conf, $paths );
 	$vars	= 
 	array(
@@ -1706,7 +1721,7 @@ function() {
 	
 	$npa	= indexPages( $args, $conf, $paths );
 	$tpl	= loadTpl( 'tpl_index.html' );
-	$parsed	= parsePosts( $posts, $conf );
+	$parsed	= parsePosts( $posts, $paths, $args, $conf );
 	
 	$vars	= 
 	array(
@@ -1740,10 +1755,10 @@ function() {
 	$pages	= nextPrev( $args );
 	$npa	= '';
 	if ( !empty( $pages ) ) {
-		$npa = siblingPages( $pages );
+		$npa = siblingPages( $pages, $args );
 	}
 	$path	= exactPost( $args );
-	$pdate	= dateWithoutSlug( dateAndSlug( $path ) );
+	$pdate	= dateWithoutSlug( dateAndSlug( $path, $args ) );
 	$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
 	
 	$ppath	= datePath( $post['slug'], strtotime( $pdate ) );
@@ -1841,6 +1856,7 @@ function() {
 		'csrf'		=> getCsrf( 'post' ),
 		'post_title'	=> $post['title'],
 		'post_body'	=> $post['raw'],
+		'post_summary'	=> $post['summary'],
 		'post_slug'	=> $post['slug'],
 		'edit'		=> $edit
 	);
@@ -1998,6 +2014,8 @@ function() {
 $routes = array(
 	array( 'get', '', $index ), 
 	array( 'get', 'page:page', $index ), 
+	array( 'get', ':mode', $index ), 
+	array( 'get', ':mode/page:page', $index ), 
 	
 	array( 'get', ':year', $archive ), 
 	array( 'get', ':year/page:page', $archive ), 
@@ -2007,9 +2025,10 @@ $routes = array(
 	
 	array( 'get', ':year/:month/:day', $archive ),
 	array( 'get', ':year/:month/:day/page:page', $archive ),
+	array( 'get', ':mode/:year/:month/:day/page:page', $archive ),
 	
 	array( 'get', 'read/:year/:month/:day/:slug', $reading ), 
-	array( 'get', 'edit/:year/:month/:day/:slug', $editing ),
+	array( 'get', ':mode/:year/:month/:day/:slug', $editing ),
 	array( 'post', 'edit', $save ),
 	
 	array( 'get', 'new', $creating ),
