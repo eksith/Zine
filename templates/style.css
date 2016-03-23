@@ -238,6 +238,10 @@ input[type='submit'], input[type='button'], .btn {
 	background:		transparent;
 	cursor:			pointer;
 }
+input.full {
+	display:		block;
+	width:			100%;
+}
 textarea {
 	width:			100%;
 }
