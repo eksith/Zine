@@ -256,14 +256,14 @@ function getPost() {
 		'body'		=> $data['body'],
 		'summary'	=> $data['summary'],
 		'raw'		=> $data['raw'],
-		'slug'		=> $data['slug']
+		'slug'		=> $data['slug'],
+		'pubdate'	=> $pub
 	);
 	
 	$draft			= isset( $data['draft'] ) ? 
 					true : false;
 	if ( empty( $data['edit'] ) ) {
 		$path	= datePath( $data['slug'], $pub );
-		$params['pubdate']	= $pub;
 	} else {
 		$edit	= editTime( $data['edit'] );
 		$path	= checkEdit( $edit );
@@ -447,27 +447,33 @@ function findArchive( $args ) {
  * Get posts that are closest to the current date path
  */
 function siblingPosts( $args ) {
+	$mode		= isset( $args['mode'] ) ?
+				$args['mode'] : null;
 	$s1		=  
 	searchDays( array( 
 		'year'	=> $args['year'], 
-		'month'	=> ( $args['month'] - 1 ) ) 
-	);
+		'month'	=> ( $args['month'] - 1 ),
+		'mode'	=> $mode
+	) );
 	$s2		=   
 	searchDays( array( 
 		'year'	=> $args['year'], 
-		'month'	=> $args['month'] ) 
-	);
+		'month'	=> $args['month'],
+		'mode'	=> $mode
+	) );
 	$s3		=   
 	searchDays( array( 
 		'year'	=> $args['year'], 
-		'month'	=> ( $args['month'] + 1 ) ) 
-	);
+		'month'	=> ( $args['month'] + 1 ),
+		'mode'	=> $mode
+	) );
 	$siblings	= array_merge( $s1, $s2, $s3 );
 	
 	if ( empty( $siblings ) ) {
 		$siblings = 
 		searchDays( array( 
-			'year' => $args['year'] 
+			'year'	=> $args['year'], 
+			'mode'	=> $mode 
 		) );
 	}
 	
@@ -475,12 +481,14 @@ function siblingPosts( $args ) {
 		if ( ( int ) $args['year'] < ( int ) date( 'Y' ) ) {
 			$siblings = 
 			searchDays( array( 
-				'year' => ( $args['year'] + 1 )
+				'year'	=> ( $args['year'] + 1 ), 
+				'mode'	=> $mode
 			) );
 		} else {
 			$siblings = 
 			searchDays( array( 
-				'year' => ( $args['year'] - 1 )
+				'year' 	=> ( $args['year'] - 1 ), 
+				'mode'	=> $mode
 			) );
 		}
 	}
