@@ -14,11 +14,11 @@
 <article class='post'>
 	<form action='/new' method='post' enctype='multipart/form-data'>
 		<input type='hidden' name='csrf' value='{csrf}' />
-		<p><input type='text' name='title' required placeholder='Title' /></p>
+		<p><input type='text' name='title' placeholder='Title' class='full' required /></p>
 		<p><textarea rows='5' cols='60' name='body' required placeholder='Body'></textarea></p>
 		
-		<p><input type='text' name='slug' placeholder='path-to-post' />  
-			<input type='submit' value='post' /></p>
+		<p><input type='text' name='slug' placeholder='path-to-post' /></p>
+		<p><input type='submit' value='Post' /></p>
 		
 		<!--<p><label class='file btn'>Upload files <input type='file' multiple='multiple' name='attach' /></label></p>-->
 	</form>
