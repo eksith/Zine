@@ -1145,7 +1145,8 @@ function clean( $html, $white, $parse = false ) {
 		$html, 
 		\LIBXML_HTML_NOIMPLIED | \LIBXML_HTML_NODEFDTD | 
 		\LIBXML_NOERROR | \LIBXML_NOWARNING | 
-		\LIBXML_NOXMLDECL 
+		\LIBXML_NOXMLDECL | \LIBXML_COMPACT | 
+		\LIBXML_NOCDATA
 	);
 	
 	$oldBody	= 
@@ -1163,6 +1164,8 @@ function clean( $html, $white, $parse = false ) {
 	
 	\libxml_clear_errors();
 	\libxml_use_internal_errors( $err );
+	var_dump( $clean );
+	die();
 	return trim( $clean );
 }
 
@@ -1456,7 +1459,7 @@ function sessionCheck( $reset = false ) {
 	
 	if ( time() > ( int ) $_SESSION['canary']['exp'] ) {
 		$visit = $_SESSION['canary']['visit'];
-		session( true );
+		\session_regenerate_id( true );
 		sessionCanary( $visit );
 	}
 }
