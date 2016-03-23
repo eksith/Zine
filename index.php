@@ -239,8 +239,7 @@ function getPost() {
 	
 	$data['summary']	= 
 		empty( $data['summary'] ) ? 
-			smartTrim( strip_tags( $data['body'] ), 
-				SUMMARY_LEN ) : 
+			smartTrim( strip_tags( $data['body'] ), SUMMARY_LEN ) : 
 			strip_tags( clean( $data['summary'] ) );
 	
 	$data['slug']		= 
@@ -279,7 +278,7 @@ function getPost() {
  */
 function postRoot() {
 	return rtrim( STORE, \DIRECTORY_SEPARATOR ) . 
-		DIRECTORY_SEPARATOR . 'posts';
+		\DIRECTORY_SEPARATOR . 'posts';
 }
 
 /**
@@ -455,13 +454,13 @@ function siblingPosts( $args ) {
 		'month'	=> ( $args['month'] - 1 ),
 		'mode'	=> $mode
 	) );
-	$s2		=   
+	$s2		=  
 	searchDays( array( 
 		'year'	=> $args['year'], 
 		'month'	=> $args['month'],
 		'mode'	=> $mode
 	) );
-	$s3		=   
+	$s3		=  
 	searchDays( array( 
 		'year'	=> $args['year'], 
 		'month'	=> ( $args['month'] + 1 ),
@@ -508,8 +507,8 @@ function nextPrev( $args ) {
 	if ( !in_array( $current, $siblings ) ) {
 		return array();
 	}
-	$np	= array();
-	$k	= array_search( $current, $siblings );
+	$np		= array();
+	$k		= array_search( $current, $siblings );
 	
 	if ( $k > 0 ) {
 		$np[] = $siblings[$k - 1];
@@ -541,10 +540,9 @@ function searchFrom( $year ) {
  */
 function archivePaginate( $args, $conf ) {
 	$paths		= findArchive( $args );
-	$page		= 
-		isset( $args['page'] ) ? $args['page'] : 1;
-	$offset		= 
-		( $page - 1 ) * $conf['post_limit'];
+	$page		= isset( $args['page'] ) ? $args['page'] : 1;
+	$offset		= ( $page - 1 ) * $conf['post_limit'];
+	
 	return 
 	array_slice( $paths, $offset, $conf['post_limit'] );
 }
@@ -554,11 +552,9 @@ function archivePaginate( $args, $conf ) {
  */
 function indexPaginate( $args, $conf ) {
 	$year		= ( int ) date( 'Y' );
-	$page		= 
-	isset( $args['page'] ) ? $args['page'] : 1;
+	$page		= isset( $args['page'] ) ? $args['page'] : 1;
 	
-	$offset		= 
-	( $page - 1 ) * $conf['post_limit'];
+	$offset		= ( $page - 1 ) * $conf['post_limit'];
 	
 	$paths		= searchFrom( $year );
 	return 
@@ -826,7 +822,7 @@ function httpHeaders() {
 			array_shift( $a );
 			array_walk( $a, function( &$r ) {
 				$r = ucfirst( strtolower( $r ) );
-			});
+			} );
 			$val[ implode( '-', $a ) ] = $v;
 		}
 	}
@@ -887,9 +883,11 @@ function getSettings() {
 		'title'		=> 
 			empty( $data['title'] ) ? 
 				'No title' : $data['title'],
+		
 		'tagline'	=>
 			empty( $data['tagline'] ) ? 
 				'No tagline' : $data['tagline'],
+		
 		'post_limit'	=> $data['posts'],
 		'date_format'	=> $data['datetime'],
 		'timezone'	=> $data['timezone'],
@@ -1024,7 +1022,7 @@ function scrub( \DOMNode $old, \DOMNode $out, $white ) {
 			( $node->nodeType == \XML_ELEMENT_NODE ) && 
 			( isset( $white[$node->nodeName] ) )
 		) {
-			if ( $node->nodeName == 'code' ) {
+			if ( 'code' == $node->nodeName ) {
 				$clean = 
 				$out->ownerDocument->createElement( 
 					'code', 
@@ -1252,9 +1250,6 @@ function parsePosts( $posts, $paths, $args, $conf ) {
 	$i	= 0;
 	
 	foreach( $posts as $post ) {
-		#$pdate	= date( $conf['date_format'], $post['pubdate'] );
-		#$ppath	= datePath( $post['slug'], $post['pubdate'] );
-		
 		$pdate	= dateWithoutSlug( dateAndSlug( $paths[$i], $args ) );
 		$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
 		
@@ -1571,23 +1566,26 @@ function endf( $msg = '' ) {
 
 /**
  * Check if a function exists ( Suhosin compatible )
+ * 
+ * @param string $func Function name
+ * @return boolean true If the function exists
  */
 function exists( $func ) {
 	if ( \extension_loaded( 'suhosin' ) ) {
 		$exts = ini_get( 'suhosin.executor.func.blacklist' );
 		if ( !empty( $exts ) ) {
-			$blocked = explode( ',', $exts );
-			$blocked = array_map( 'trim', $blocked );
+			$blocked	= explode( ',', strtolower( $exts ) );
+			$blocked	= array_map( 'trim', $blocked );
+			$search		= strtolower( $func );
 			
 			return ( 
-				true == \function_exists( $func ) && 
-				false == array_search( $func, $blocked ) 
+				true	== \function_exists( $func ) && 
+				false	== array_search( $search, $blocked ) 
 			);
 		}
 	}
 	return \function_exists( $func );
 }
-
 
 /**
  * Paths are sent in bare. Make them suitable for matching.
@@ -1696,6 +1694,7 @@ function() {
 	if ( empty( $posts ) ) {
 		message( MSG_NOPOSTS );
 	}
+	
 	$parsed	= parsePosts( $posts, $paths, $args, $conf );
 	$npa	= indexPages( $args, $conf, $paths );
 	$vars	= 
@@ -1771,6 +1770,7 @@ function() {
 	if ( !empty( $pages ) ) {
 		$npa = siblingPages( $pages, $args );
 	}
+	
 	$path	= exactPost( $args );
 	$pdate	= dateWithoutSlug( dateAndSlug( $path, $args ) );
 	$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
