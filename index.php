@@ -18,7 +18,7 @@ define( 'CONFIG',	'site.conf' );
 # added any posts will make them all unavailable !)
 define( 'POST_FILE',	'blog.post' );
 
-# Post draft file (TODO)
+# Post draft file
 define( 'DRAFT_FILE',	'draft.post' );
 
 # Year limit to end when searching for posts
@@ -278,7 +278,7 @@ function postRoot() {
  * Save a post in its specified path directory
  * Replaces an existing post in the same location
  */
-function savePost( $path, $data ) {
+function savePost( $path, $data, $draft = false ) {
 	$paths	= explode( '/', $path );
 	$root	= postRoot();
 	
@@ -290,7 +290,8 @@ function savePost( $path, $data ) {
 		
 		mkdir( $root, 0600 );
 	}
-	$file	= $root . \DIRECTORY_SEPARATOR . POST_FILE;
+	$p	= $draft? DRAFT_FILE : POST_FILE;
+	$file	= $root . \DIRECTORY_SEPARATOR . $p;
 	
 	# Edit the post if it already exists
 	if ( file_exists( $file ) ) {
@@ -350,9 +351,13 @@ function deletePost( $path ) {
 /**
  * Sort returned file paths by last modified date
  */
-function sortByModified( $post ) {
+function sortByModified( $post, $drafts = false ) {
 	# Root path + the date - post slug
-	$f = strlen( POST_FILE ) + 1; 
+	if ( $drafts ) {
+		$f = strlen( DRAFT_FILE ) + 1; 
+	} else {
+		$f = strlen( POST_FILE ) + 1; 
+	}
 	$i = strlen( postRoot() ) + $f;
 	
 	usort( $post, function( $a, $b ) use ( $i ) {
@@ -371,21 +376,23 @@ function sortByModified( $post ) {
 /**
  * Search for posts in a day/month/year range
  */
-function searchDays( $args ) {
+function searchDays( $args, $drafts = false ) {
 	$s	= \DIRECTORY_SEPARATOR;
+	$p	= $drafts ? DRAFT_FILE : POST_FILE;
+	
 	if ( isset( $args['day'] ) ) {
-		$f = '*' . $s . POST_FILE;
+		$f = '*' . $s . $p;
 	}
 	if ( isset( $args['month'] ) ) {
-		$f	= '*' . $s . '*' . $s . POST_FILE;
+		$f	= '*' . $s . '*' . $s . $p;
 	}
 	if ( isset( $args['year'] ) ) {
-		$f	= '*'. $s .'*'. $s .'*'. $s . POST_FILE;
+		$f	= '*'. $s .'*'. $s .'*'. $s . $p;
 	}
 	$search	= postRoot() . $s . implode( $s, $args ) . $s;
 	$posts	= glob( $search . $f, \GLOB_NOSORT );
 	
-	return sortByModified( $posts );
+	return sortByModified( $posts, $drafts );
 }
 
 /**
@@ -408,7 +415,9 @@ function findArchive( $args ) {
 	if ( isset( $args['year'] ) ) {
 		$days = array( 'year'=> $args['year'] );
 	}
-	return searchDays( $days );
+	$drafts	= ( fileByMode( $args ) == DRAFT_FILE ) ? 
+			true : false;
+	return searchDays( $days, $drafts );
 }
 
 /**
@@ -453,7 +462,9 @@ function siblingPosts( $args ) {
 		}
 	}
 	
-	return sortByModified( $siblings );
+	$drafts	= ( fileByMode( $args ) == DRAFT_FILE ) ? 
+			true : false;
+	return sortByModified( $siblings, $drafts );
 }
 
 /**
@@ -521,6 +532,22 @@ function indexPaginate( $args, $conf ) {
 	$paths		= searchFrom( $year );
 	return 
 	array_slice( $paths, $offset, $conf['post_limit'] );
+}
+
+/**
+ * Select the file type post/draft etc... by mode
+ */
+function fileByMode( $args ) {
+	if ( isset( $args['mode'] ) ) {
+		switch( $args['mode'] ) {
+			case 'drafts':
+				return DRAFT_FILE;
+				
+			default: 
+				return POST_FILE;
+		}
+	}
+	return POST_FILE;
 }
 
 /**
@@ -1736,7 +1763,7 @@ function() {
 	if ( empty( $data ) ) {
 		message( MSG_FORMEXP, true );
 	}
-	$post	= savePost( $data[0], $data[1] );
+	$post	= savePost( $data[0], $data[1], $data[2] );
 	header( 'Location: /read' . $post );
 	die();
 };
