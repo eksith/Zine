@@ -25,7 +25,10 @@ define( 'DRAFT_FILE',	'draft.post' );
 define( 'YEAR_END',	2000 );
 
 # Default length of the auto-generated summary
-define( 'SUMMARY_LEN', 200 );
+define( 'SUMMARY_LEN',	200 );
+
+# Session refresh timeout
+define( 'SESSION_EXP',	300 );
 
 
 /**
@@ -191,7 +194,7 @@ function checkEdit( $data ) {
 /**
  * Parse and filter user submitted post data
  */
-function getPost() {
+function getPost( $conf ) {
 	$filter = array(
 		'csrf'		=> \FILTER_SANITIZE_STRING,
 		'edit'		=> \FILTER_SANITIZE_STRING,
@@ -228,7 +231,7 @@ function getPost() {
 	# Post content exactly as entered by the user
 	$data['raw']		= $data['body'];
 	
-	$data['body']		= clean( $data['body'] );
+	$data['body']		= clean( $data['body'], $conf['tags'] );
 	if ( empty( $data['body'] ) ) {
 		message( MSG_BODYM );
 	}
@@ -240,7 +243,7 @@ function getPost() {
 	$data['summary']	= 
 		empty( $data['summary'] ) ? 
 			smartTrim( strip_tags( $data['body'] ), SUMMARY_LEN ) : 
-			strip_tags( clean( $data['summary'] ) );
+			strip_tags( clean( $data['summary'], $conf['tags'] ) );
 	
 	$data['slug']		= 
 		slugify( $data['title'], $data['slug'] );
@@ -835,7 +838,7 @@ function httpHeaders() {
 /**
  * Parse and filter sent site settings
  */
-function getSettings() {
+function getSettings( $conf ) {
 	$filter = array(
 		'csrf'		=> \FILTER_SANITIZE_STRING,
 		'title'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
@@ -863,7 +866,8 @@ function getSettings() {
 	}
 	
 	if ( !empty( $data['copyright'] ) ) {
-		 $data['copyright']  = clean( $data['copyright'] );
+		 $data['copyright']  = 
+		 	clean( $data['copyright'], $conf['tags'] );
 	}
 	
 	if ( !in_array(
@@ -1121,67 +1125,14 @@ function cleanUrl( $txt, $xss = true ) {
  * Clean user provided HTML
  * 
  * @param string $html Raw HTML
+ * @param array $white Whitelist of allowed tags and attributes
  * @param bool $parse Apply markdown syntax formatting (defaults to true)
+ * 
+ * @return string Cleaned and formatted HTML
  */
-function clean( $html, $parse = false ) {
+function clean( $html, $white, $parse = false ) {
 	# TODO Markdown format
 	# $parse
-	
-	
-	$white = 
-	array(
-		'p'		=> array( 'style', 'class', 'align' ),
-		'div'		=> array( 'style', 'class', 'align' ),
-		'span'		=> array( 'style', 'class' ),
-		'br'		=> array( 'style', 'class' ),
-		'hr'		=> array( 'style', 'class' ),
-		
-		'h1'		=> array( 'style', 'class' ),
-		'h2'		=> array( 'style', 'class' ),
-		'h3'		=> array( 'style', 'class' ),
-		'h4'		=> array( 'style', 'class' ),
-		'h5'		=> array( 'style', 'class' ),
-		'h6'		=> array( 'style', 'class' ),
-		
-		'strong'	=> array( 'style', 'class' ),
-		'em'		=> array( 'style', 'class' ),
-		'u'	 		=> array( 'style', 'class' ),
-		'strike'	=> array( 'style', 'class' ),
-		'del'		=> array( 'style', 'class' ),
-		'ol'		=> array( 'style', 'class' ),
-		'ul'		=> array( 'style', 'class' ),
-		'li'		=> array( 'style', 'class' ),
-		'code'		=> array( 'style', 'class' ),
-		'pre'		=> array( 'style', 'class' ),
-		
-		'sup'		=> array( 'style', 'class' ),
-		'sub'		=> array( 'style', 'class' ),
-		
-		# Took out 'rel' and 'title', because we're using those below
-		'a'		=> array( 'style', 'class', 'href' ),
-		
-		'img'		=> array( 'style', 'class', 'src', 'height', 
-				'width', 'alt', 'longdesc', 'title', 
-				'hspace', 'vspace' ),
-		
-		'table'		=> array( 'style', 'class', 'border-collapse', 
-				'cellspacing', 'cellpadding' ),
-		'thead'		=> array( 'style', 'class' ),
-		'tbody'		=> array( 'style', 'class' ),
-		'tfoot'		=> array( 'style', 'class' ),
-		'tr'		=> array( 'style', 'class' ),
-		'td'		=> array( 'style', 'class', 
-					'colspan', 'rowspan' ),
-		'th'		=> array( 'style', 'class', 'scope', 'colspan', 
-					'rowspan' ),
-		'q'		=> array( 'style', 'class', 'cite' ),
-		'cite'		=> array( 'style', 'class' ),
-		'abbr'		=> array( 'style', 'class' ),
-		'blockquote'	=> array( 'style', 'class' ),
-		
-		# Stripped out
-		'body'		=> array()
-	);
 	$err		= \libxml_use_internal_errors( true );
 	$html		= \mb_convert_encoding( 
 				$html, 'HTML-ENTITIES', "UTF-8" 
@@ -1214,6 +1165,10 @@ function clean( $html, $parse = false ) {
  * Tidy settings
  */
 function tidyup( $text ) {
+	if ( !exists( 'tidy_repair_string' ) ) {
+		return $text;
+	}
+	
 	$opt = array(
 		'bare'				=> 1,
 		'hide-comments' 		=> 1,
@@ -1306,7 +1261,7 @@ function indexPages( $args, $conf, $paths ) {
 		$page >= 1
 	) {
 		$npa .= 
-		pageLink( 'Previous', $pre . 'page'. ( $page + 1 ) );
+		pageLink( 'Previous', '/' . $pre . 'page'. ( $page + 1 ) );
 	}
 	
 	return $npa;
@@ -1474,12 +1429,12 @@ function bytes( $len ) {
  * 
  * @link https://paragonie.com/blog/2015/04/fast-track-safe-and-secure-php-sessions
  */
-function sessionCanary() {
-	$time	= 3600;
-	
-	$_SESSION['canary'] = array(
-		'exp'	=> time() + $time,
-		'visit'	=> bin2hex( bytes( 12 ) )
+function sessionCanary( $visit = null ) {
+	$_SESSION['canary'] = 
+	array(
+		'exp'	=> time() + SESSION_EXP,
+		'visit'	=> empty( $visit ) ? 
+				bin2hex( bytes( 12 ) ) : $visit
 	);
 }
 
@@ -1494,11 +1449,10 @@ function sessionCheck( $reset = false ) {
 		return;
 	}
 	
-	if ( 
-		time() > ( int ) $_SESSION['canary']['exp']
-	) {
-		\session_regenerate_id( true );
-		sessionCanary();
+	if ( time() > ( int ) $_SESSION['canary']['exp'] ) {
+		$visit = $_SESSION['canary']['visit'];
+		session( true );
+		sessionCanary( $visit );
 	}
 }
 
@@ -1584,13 +1538,15 @@ function exists( $func ) {
 			);
 		}
 	}
+	
 	return \function_exists( $func );
 }
 
 /**
  * Paths are sent in bare. Make them suitable for matching.
  * 
- * @param string $route URL path regex
+ * @param string $route URL path in plain format
+ * @return string Route in regex format
  */
 function cleanRoute( $k, $v, $route ) {
 	$route	= str_replace( $k, $v, $route );
@@ -1806,7 +1762,7 @@ function() {
 	
 	authority();
 	
-	$data	= getPost();
+	$data	= getPost( $conf );
 	if ( empty( $data ) ) {
 		message( MSG_FORMEXP, true );
 	}
@@ -1984,7 +1940,7 @@ function() {
 	if ( !auth() ) {
 		message( MSG_LOGIN );
 	}
-	$data	= getSettings();
+	$data	= getSettings( $conf );
 	if ( empty( $data ) ) {
 		message( MSG_NOSETTS, true );
 	}
