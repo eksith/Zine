@@ -750,7 +750,7 @@ function authority() {
 		setAuth();
 		return;
 	}
-
+	
 	message( MSG_LOGIN );
 }
 
@@ -1252,6 +1252,9 @@ function parsePosts( $posts, $paths, $args, $conf ) {
 	$i	= 0;
 	
 	foreach( $posts as $post ) {
+		#$pdate	= date( $conf['date_format'], $post['pubdate'] );
+		#$ppath	= datePath( $post['slug'], $post['pubdate'] );
+		
 		$pdate	= dateWithoutSlug( dateAndSlug( $paths[$i], $args ) );
 		$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
 		
@@ -1278,19 +1281,22 @@ function parsePosts( $posts, $paths, $args, $conf ) {
 function indexPages( $args, $conf, $paths ) {
 	$page	= isset( $args['page'] ) ? 
 			( int ) $args['page'] : 1;
+	$pre	= isset( $args['mode'] ) ? 
+			$args['mode'] . '/' : '';
+	
 	$npa	= '';
 	$pm1	= $page - 1;
 	if ( $page > 1 ) {
 		if ( 0 <= $pm1 ) {
 			if ( count( $paths ) < $conf['post_limit'] ) {
 				$npa .= 
-				pageLink( 'Next', 'page'. $pm1 );
+				pageLink( 'Next', $pre . 'page'. $pm1 );
 			}
 			$npa .= 
 			pageLink( 'Home', '/' );
 		} else {
 			$npa .= 
-			pageLink( 'Next', 'page'. $pm1 );
+			pageLink( 'Next', $pre . 'page'. $pm1 );
 		}
 	} else {
 		$npa .= '<li></li>';
@@ -1305,7 +1311,7 @@ function indexPages( $args, $conf, $paths ) {
 		$page >= 1
 	) {
 		$npa .= 
-		pageLink( 'Previous', 'page'. ( $page + 1 ) );
+		pageLink( 'Previous', $pre . 'page'. ( $page + 1 ) );
 	}
 	
 	return $npa;
