@@ -14,6 +14,16 @@ define( 'STORE',	PATH . 'data/' );
 # If this is changed, remember to also rename the file
 define( 'CONFIG',	'site.conf' );
 
+# File name to store posts as (changing this after you've 
+# added any posts will make them all unavailable !)
+define( 'POST_FILE',	'blog.post' );
+
+# Post draft file (TODO)
+define( 'DRAFT_FILE',	'draft.post' );
+
+# Year limit to end when searching for posts
+define( 'YEAR_END',	2000 );
+
 /**
  * Common messages
  */
@@ -29,6 +39,7 @@ define( 'MSG_NOPOSTS',	"<p>Couldn't find any more posts. Back to the <a href='/'
 define( 'MSG_NOTFOUND', "<p>Couldn't find the post you're looking for. Back to the <a href='/'>front page</a>.</p>" );
 define( 'MSG_POSTDEL',	"<p>Post successfully deleted. Back to the <a href='/'>front page</a>, create a <a href='/new'>new post</a> or enter the <a href='/manage'>site settings</a> area.</p>" );
 define( 'MSG_POSTNDEL',	"<p>Couldn't delete post. It may have already been deleted or the delete path was invalid. Back to the <a href='/'>front page</a>." );
+define( 'MSG_POSTDERR', "<p>Error loading post file. The formatting has been corrupted.</p>" );
 
 define( 'MSG_FORMEXP',	"<p>The form you submitted has expired. <a href='/'>Go back</a>.</p>" );
 define( 'MSG_INVALID',	"<p>Invalid data sent.</p>" );
@@ -279,7 +290,7 @@ function savePost( $path, $data ) {
 		
 		mkdir( $root, 0600 );
 	}
-	$file	= $root . \DIRECTORY_SEPARATOR . 'blog.post';
+	$file	= $root . \DIRECTORY_SEPARATOR . POST_FILE;
 	
 	# Edit the post if it already exists
 	if ( file_exists( $file ) ) {
@@ -325,7 +336,7 @@ function saveUploads( $path, $data ) {
 function deletePost( $path ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	$root	= postRoot();
-	$file	= $root . $s . $path . $s . 'blog.post';
+	$file	= $root . $s . $path . $s . POST_FILE;
 	
 	if ( file_exists( $file ) ) {
 		if ( unlink( $file ) ) {
@@ -339,19 +350,10 @@ function deletePost( $path ) {
 /**
  * Sort returned file paths by last modified date
  */
-function sortByModified( $posts ) {
-	usort( $posts, function( $a, $b ) {
-		return filemtime( $b ) - filemtime( $a );
-	} );
-	return $posts;
-}
-
-/**
- * Sort returned file paths by last modified date
- */
-function sortByDatePath( $post ) {
+function sortByModified( $post ) {
 	# Root path + the date - post slug
-	$i = strlen( postRoot() ) + 11;
+	$f = strlen( POST_FILE ) + 1; 
+	$i = strlen( postRoot() ) + $f;
 	
 	usort( $post, function( $a, $b ) use ( $i ) {
 		$c = strncmp( $a, $b, $i );
@@ -360,7 +362,7 @@ function sortByDatePath( $post ) {
 		# sort by created date (modified date on *nix)
 		return ( 0 === $c ) ? 
 			( filectime( $b ) - filectime( $a ) ) : 
-			( $c <= 0 );
+			( $c < 0 );
 	} );
 	
 	return $post;
@@ -372,18 +374,18 @@ function sortByDatePath( $post ) {
 function searchDays( $args ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	if ( isset( $args['day'] ) ) {
-		$f = '*' . $s .'blog.post';
+		$f = '*' . $s . POST_FILE;
 	}
 	if ( isset( $args['month'] ) ) {
-		$f	= '*' . $s . '*' . $s . 'blog.post';
+		$f	= '*' . $s . '*' . $s . POST_FILE;
 	}
 	if ( isset( $args['year'] ) ) {
-		$f	= '*'. $s .'*'. $s .'*'. $s .'blog.post';
+		$f	= '*'. $s .'*'. $s .'*'. $s . POST_FILE;
 	}
 	$search	= postRoot() . $s . implode( $s, $args ) . $s;
 	$posts	= glob( $search . $f, \GLOB_NOSORT );
 	
-	return sortByDatePath( $posts );
+	return sortByModified( $posts );
 }
 
 /**
@@ -451,7 +453,7 @@ function siblingPosts( $args ) {
 		}
 	}
 	
-	return sortByDatePath( $siblings );
+	return sortByModified( $siblings );
 }
 
 /**
@@ -484,7 +486,7 @@ function nextPrev( $args ) {
  */
 function searchFrom( $year ) {
 	$paths		= array();
-	while( empty( $paths ) && $year > 2000 ) {
+	while( empty( $paths ) && $year > YEAR_END ) {
 		$paths	= searchDays( array( 'year' => $year ) );
 		$year--;
 	}
@@ -511,9 +513,10 @@ function archivePaginate( $args, $conf ) {
 function indexPaginate( $args, $conf ) {
 	$year		= ( int ) date( 'Y' );
 	$page		= 
-		isset( $args['page'] ) ? $args['page'] : 1;
+	isset( $args['page'] ) ? $args['page'] : 1;
+	
 	$offset		= 
-		( $page - 1 ) * $conf['post_limit'];
+	( $page - 1 ) * $conf['post_limit'];
 	
 	$paths		= searchFrom( $year );
 	return 
@@ -530,18 +533,29 @@ function exactPost( $args ) {
 		$args['day'], $args['slug']
 	);
 	
-	return postRoot() . $s . implode( $s, $path ) . $s . 'blog.post';
+	return postRoot() . $s . implode( $s, $path ) . 
+		$s . POST_FILE;
 }
 
 /**
  * Load a content page and return decoded JSON
  */
 function loadPost( $file ) {
+	if ( !file_exists( $file ) ) {
+		return null;
+	}
+	
 	$data = file_get_contents( $file );
 	if ( false !== strpos( $data, '<?' ) ) {
 		endf( MSG_SSDETECT );
 	}
-	return json_decode( utf8_encode( $data ), true );
+	
+	$params	= json_decode( utf8_encode( $data ), true );
+	if ( empty( $params ) ) {
+		message( MSG_POSTDERR, true );
+	}
+	
+	return $params;
 }
 
 
@@ -550,12 +564,7 @@ function loadPost( $file ) {
  */
 function findPost( $args ) {
 	$search = exactPost( $args );
-	
-	if ( file_exists( $search ) ) {
-		return loadPost( $search );
-	}
-	
-	return null;
+	return loadPost( $search );
 }
 
 /**
@@ -564,11 +573,9 @@ function findPost( $args ) {
 function loadPosts( $paths ) {
 	$posts	= array();
 	foreach ( $paths as $path ) {
-		if ( file_exists( $path ) ) {
-			$post	= loadPost( $path );
-			if ( !empty( $post ) ) {
-				$posts[] = $post;
-			}
+		$post	= loadPost( $path );
+		if ( !empty( $post ) ) {
+			$posts[] = $post;
 		}
 	}
 	
@@ -676,9 +683,20 @@ function passNeedsRehash( $stored ) {
 	\password_needs_rehash( $stored, \PASSWORD_DEFAULT );
 }
 
+/**
+ * Check authorization and refresh the session
+ */
+function authority() {
+	if ( auth() ) {
+		setAuth();
+		return;
+	}
+
+	message( MSG_LOGIN );
+}
 
 /**
- * Check authorization
+ * Check authorization token
  */
 function auth() {
 	sessionCheck();
@@ -688,10 +706,8 @@ function auth() {
 	
 	$sig			= signature();
 	$visit			= $_SESSION['canary']['visit'];
-	if ( verifyPbk( 
-		$sig . $visit, 
-		$_SESSION['auth'] 
-	) ) {
+	
+	if ( verifyPbk( $sig . $visit, $_SESSION['auth'] ) ) {
 		return true;
 	}
 	
@@ -727,17 +743,17 @@ function signature() {
 		'Date',
 		'TE'
 	);
-	$search		= 
-		array_intersect_key( 
-			array_keys( $headers ), 
-			array_reverse( $skip ) 
-		);
-	$match		= '';
 	
+	$search		= 
+	array_intersect_key( 
+		array_keys( $headers ), 
+		array_reverse( $skip ) 
+	);
+	
+	$match		= '';
 	foreach ( $headers as $k => $v ) {
 		$match .= $v[0];
 	}
-	
 }
 
 /**
@@ -1050,7 +1066,11 @@ function cleanUrl( $txt, $xss = true ) {
  * @param string $html Raw HTML
  * @param bool $parse Apply markdown syntax formatting (defaults to true)
  */
-function clean( $html ) {
+function clean( $html, $parse = false ) {
+	# TODO Markdown format
+	# $parse
+	
+	
 	$white = 
 	array(
 		'p'		=> array( 'style', 'class', 'align' ),
@@ -1232,8 +1252,9 @@ function indexPages( $args, $conf, $paths ) {
 function dateAndSlug( $path ) {
 	$i = strlen( postRoot() ) + 1;
 	
-	# Remove the root and '/blog.post'
-	return substr( substr( $path, 0, -10 ), $i );
+	# Remove the root and '/POST_FILE'
+	$f = strlen( POST_FILE );
+	return substr( substr( $path, 0, -$f ), $i );
 }
 
 /**
@@ -1242,8 +1263,8 @@ function dateAndSlug( $path ) {
 function dateWithoutSlug( $path ) {
 	$path	= rtrim( $path, '\\' );
 	$i	= strrpos( $path, '\\' );
-	
 	$p	= substr( $path, 0, $i );
+	
 	return str_replace( '\\', '/', $p );
 }
 
@@ -1585,7 +1606,6 @@ function message( $msg, $scrub = false ) {
 }
 
 
-
 /* Route functionality */
 
 
@@ -1681,6 +1701,7 @@ function() {
 	$pdate	= dateWithoutSlug( dateAndSlug( $path ) );
 	$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
 	
+	$ppath	= datePath( $post['slug'], strtotime( $pdate ) );
 	
 	$vars	= 
 	array(
@@ -1689,8 +1710,7 @@ function() {
 		'theme'		=> $conf['theme_dir'],
 		'post_title'	=> $post['title'],
 		'post_date'	=> $pdate,
-		'post_path'	=> 
-			datePath( $post['slug'], $post['pubdate'] ),
+		'post_path'	=> $ppath,
 			
 		'post_body'	=> $post['body'],
 		'navpages'	=> $npa,
@@ -1710,9 +1730,7 @@ function() {
 	$conf	= loadConf();
 	\date_default_timezone_set( $conf['timezone'] );
 	
-	if ( !auth() ) {
-		message( MSG_LOGIN );
-	}
+	authority();
 	
 	$data	= getPost();
 	if ( empty( $data ) ) {
@@ -1731,9 +1749,8 @@ function() {
 	$conf	= loadConf();
 	\date_default_timezone_set( $conf['timezone'] );
 	
-	if ( !auth() ) {
-		message( MSG_LOGIN );
-	}
+	authority();
+	
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
@@ -1756,9 +1773,8 @@ function() {
 	$conf	= loadConf();
 	\date_default_timezone_set( $conf['timezone'] );
 	
-	if ( !auth() ) {
-		message( MSG_LOGIN );
-	}
+	authority();
+	
 	$args	= func_get_args()[0];
 	$post	= findPost( $args );
 	if ( empty( $post ) ) {
