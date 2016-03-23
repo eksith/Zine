@@ -18,7 +18,7 @@ define( 'CONFIG',	'site.conf' );
 # added any posts will make them all unavailable !)
 define( 'POST_FILE',	'blog.post' );
 
-# Post draft file
+# Post draft file ( TODO )
 define( 'DRAFT_FILE',	'draft.post' );
 
 # Year limit to end when searching for posts
@@ -196,6 +196,7 @@ function getPost() {
 		'slug'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'summary'	=> \FILTER_UNSAFE_RAW,
 		'body'		=> \FILTER_UNSAFE_RAW,
+		'draft'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'delpost'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
 	);
 	
@@ -253,6 +254,8 @@ function getPost() {
 		'slug'		=> $data['slug']
 	);
 	
+	$draft			= isset( $data['draft'] ) ? 
+					true : false;
 	if ( empty( $data['edit'] ) ) {
 		$path	= datePath( $data['slug'], $pub );
 		$params['pubdate']	= $pub;
@@ -260,7 +263,7 @@ function getPost() {
 		$edit	= editTime( $data['edit'] );
 		$path	= checkEdit( $edit );
 	}
-	return array( $path, $params );
+	return array( $path, $params, $draft );
 }
 
 
@@ -290,7 +293,7 @@ function savePost( $path, $data, $draft = false ) {
 		
 		mkdir( $root, 0600 );
 	}
-	$p	= $draft? DRAFT_FILE : POST_FILE;
+	$p	= $draft ? DRAFT_FILE : POST_FILE;
 	$file	= $root . \DIRECTORY_SEPARATOR . $p;
 	
 	# Edit the post if it already exists
