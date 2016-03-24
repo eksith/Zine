@@ -318,24 +318,76 @@ function savePost( $path, $data, $draft = false ) {
 	return '/' . $path;
 }
 
-# https://secure.php.net/manual/en/features.file-upload.multiple.php
-function fileSort() {
-	$files	= array();
+/** 
+ * Return uploaded $_FILES array into a more sane format
+ * 
+ * https://secure.php.net/manual/en/features.file-upload.multiple.php
+ */
+function parseUploads() {
+	$files = array();
 	
-	foreach ( $_FILES as $k => $v ) {
-		foreach( $v as $n => $f ) {
-			$files[$n][$k] = $f;
+	foreach( $_FILES as $name => $file ) {
+		if ( is_array($file['name']) ) {
+			foreach ( $file['name'] as $n => $f ) {
+				$files[$name][$n] = array();
+				
+				foreach( $file as $k => $v ) {
+					$files[$name][$n][$k] = 
+						$file[$k][$n];
+				}
+			}
+		} else {
+        		$files[$name][] = $file;
 		}
 	}
-	return $files;
+        return $files;
 }
 
-# TODO
+/**
+ * Rename file to prevent overwriting existing ones by 
+ * appending _i where 'i' is incremented by 1 until no 
+ * more files with the same name are found
+ */
+function dupRename( $up ) {
+	$info	= pathinfo( $up );
+	$ext	= $info['extension'];
+	$name	= $info['filename'];
+	$dir	= $info['dirname'];
+	$file	= $up;
+	$i	= 0;
+	
+	while ( file_exists( $file ) ) {
+		$file = $dir . \DIRECTORY_SEPARATOR . 
+			$name . '_' . $i++ . '.' . $ext;
+	}
+	
+	return $file;
+}
+
+/**
+ * Move uploaded files to the same directory as the post
+ */
 function saveUploads( $path ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	$root	= postRoot();
-	$files	= fileSort();
+	$files	= parseUploads();
 	$store	= $root . $s . $path . $s;
+	
+	foreach ( $files as $name ) {
+		foreach( $name as $file ) {
+			# If errors were found, skip
+			if ( $file['error'] != \UPLOAD_ERR_OK ) {
+				continue;
+			}
+			
+			$tn	= $file['tmp_name'];
+			$n	= $file['name'];
+			
+			# Check for duplicates and rename 
+			$up	= dupRename( $store . $n );
+			\move_uploaded_file( $tn, $up );
+		}
+	}
 }
 
 /**
