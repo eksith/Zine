@@ -15,14 +15,14 @@
 	<form action='/new' method='post' enctype='multipart/form-data'>
 		<input type='hidden' name='csrf' value='{csrf}' />
 		<p><input type='text' name='title' placeholder='Title' class='full' required /></p>
-		<p><textarea rows='5' cols='60' name='body' required placeholder='Body'></textarea></p>
+		<p><textarea rows='10' cols='60' name='body' required placeholder='Body'></textarea></p>
 		
 		<p><input type='text' name='slug' placeholder='path-to-post' /></p>
 		<p><textarea rows='2' cols='60' name='summary' placeholder='Summary'></textarea></p>
 		
 		<p><input type='submit' value='Post' /> | <input type='submit' name='draft' value='Save draft' /> </p>
 		
-		<!--<p><label class='file btn'>Upload files <input type='file' multiple='multiple' name='attach' /></label></p>-->
+		<p><label class='file btn'>Upload files <input type='file' multiple='multiple' name='attach[]' /></label></p>
 	</form>
 </article>
 <footer>
