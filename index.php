@@ -322,7 +322,7 @@ function savePost( $path, $data, $draft = false ) {
 function fileSort() {
 	$files	= array();
 	
-	foreach ( $_FILE as $k => $v ) {
+	foreach ( $_FILES as $k => $v ) {
 		foreach( $v as $n => $f ) {
 			$files[$n][$k] = $f;
 		}
@@ -336,7 +336,6 @@ function saveUploads( $path ) {
 	$root	= postRoot();
 	$files	= fileSort();
 	$store	= $root . $s . $path . $s;
-	
 }
 
 /**
