@@ -1030,6 +1030,7 @@ function scrub(
 	if ( isset( $white[$node->nodeName] ) ) {
 		# Clean attributes first
 		cleanAttributes( $node, $white );
+		
 		if ( $node->childNodes ) {
 			# Continue to other tags
 			foreach ( $node->childNodes as $child ) {
@@ -1180,6 +1181,8 @@ function clean( $html, $white, $parse = false ) {
 	
 	\libxml_clear_errors();
 	\libxml_use_internal_errors( $err );
+	$clean		= embeds( $clean );
+	
 	return trim( $clean );
 }
 
@@ -1204,6 +1207,40 @@ function tidyup( $text ) {
 	);
 	
 	return trim( \tidy_repair_string( $text, $opt ) );
+}
+
+/**
+ * Embedded Big Brother silo media
+ */
+function embeds( $html ) {
+	$filter		= 
+	array(
+		'/\[youtube http(s)?\:\/\/(www)?\.?youtube\.com\/watch\?v=([0-9a-z_]*)\]/is'
+		=> 
+		'<div class="media"><iframe width="560" height="315" src="https://www.youtube.com/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		
+		'/\[youtube http(s)?\:\/\/(www)?\.?youtu\.be\/([0-9a-z_]*)\]/is'
+		=> 
+		'<div class="media"><iframe width="560" height="315" src="https://www.youtube.com/embed/$3" frameborder="0" allowfullscreen></iframe></div>',
+		
+		'/\[youtube ([0-9a-z_]*)\]/is'
+		=> 
+		'<div class="media"><iframe width="560" height="315" src="https://www.youtube.com/embed/$1" frameborder="0" allowfullscreen></iframe></div>',
+		
+		'/\[vimeo ([0-9]*)\]/is'
+		=> 
+		'<div class="media"><iframe src="https://player.vimeo.com/video/$1?portrait=0" width="500" height="281" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe></div>',
+		
+		'/\[vimeo http(s)?\:\/\/(www)?\.?vimeo\.com\/([0-9]*)\]/is'=> 
+		'<div class="media"><iframe src="https://player.vimeo.com/video/$3?portrait=0" width="500" height="281" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe></div>'
+	);
+	
+	return 
+	preg_replace( 
+		array_keys( $filter ), 
+		array_values( $filter ), 
+		$html 
+	);
 }
 
 /**
