@@ -331,7 +331,7 @@ function fileSort() {
 }
 
 # TODO
-function saveUploads( $path, $data ) {
+function saveUploads( $path ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	$root	= postRoot();
 	$files	= fileSort();
@@ -855,6 +855,16 @@ function getSettings( $conf ) {
 				'max_range'	=> 100 
 			)
 		),
+		'uploads'		=>
+		array(
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> 
+			array(
+				'default'	=> 1,
+				'min_range'	=> 0,
+				'max_range'	=> 1 
+			)
+		),
 		'datetime'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'timezone'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
 		'copyright'	=> \FILTER_UNSAFE_RAW
@@ -893,7 +903,7 @@ function getSettings( $conf ) {
 		'tagline'	=>
 			empty( $data['tagline'] ) ? 
 				'No tagline' : $data['tagline'],
-		
+		'allow_uploads'	=> $data['uploads'],
 		'post_limit'	=> $data['posts'],
 		'date_format'	=> $data['datetime'],
 		'timezone'	=> $data['timezone'],
@@ -1825,7 +1835,11 @@ function() {
 	if ( empty( $data ) ) {
 		message( MSG_FORMEXP, true );
 	}
+	
 	$post	= savePost( $data[0], $data[1], $data[2] );
+	if ( $conf['allow_uploads'] ) {
+		saveUploads( $data[0] );
+	}
 	header( 'Location: /read' . $post );
 	die();
 };
