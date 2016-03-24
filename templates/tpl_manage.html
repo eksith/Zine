@@ -19,6 +19,12 @@
 		<p><input type='number' name='posts' placeholder='Posts per page' min='1' max='100' value='{site_posts}' class='sm' required /> <label for='posts'>Posts per page</label></p>
 		<p><input type='text' name='datetime' placeholder='Date time' value='{site_date}' class='sm' required /> <label for='dateformat'>Date and time format</label> <a href='https://secure.php.net/manual/en/function.date.php'>(?)</a></p>
 		<p><input type='text' name='timezone' placeholder='Timezone' value='{site_timezone}' class='sm' required /> <label for='timezone'>Timezone</label> <a href='https://secure.php.net/manual/en/timezones.php'>(?)</a></p>
+		<p>
+			<select name='uploads'>
+				<option value='1' {site_upyes}>Enable file uploading</option>
+				<option value='0' {site_upno}>Disable file uploading</option>
+			</select>
+		</p>
 		<p><label for='copyright'>Copyright or Footer text</label> <textarea name='copyright' placeholder='Copyright (c)'>{site_copyright}</textarea></p>
 		<p><input type='submit' value='Save settings' /></p>
 	</form>
