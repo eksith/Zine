@@ -311,7 +311,7 @@ function savePost( $path, $data, $draft = false ) {
 		
 	$post	= json_encode( $data, 
 			\JSON_HEX_QUOT | \JSON_HEX_TAG | 
-			\JSON_PRETTY_PRINT );
+			\JSON_HEX_APOS | \JSON_PRETTY_PRINT );
 	
 	
 	file_put_contents( $file, $post );
@@ -1020,41 +1020,23 @@ function entities( $v, $quotes = true ) {
 /**
  * Scrub each node against white list
  */
-function scrub( \DOMNode $old, \DOMNode $out, $white ) {
-	foreach ( $old->childNodes as $node ) {
-		if ( 
-			( $node->nodeType == \XML_ELEMENT_NODE ) && 
-			( isset( $white[$node->nodeName] ) )
-		) {
-			if ( 'code' == $node->nodeName ) {
-				$clean = 
-				$out->ownerDocument->createElement( 
-					'code', 
-					entities( $node->textContent )
-				);
-			} else {
-				$clean = 
-				$out->ownerDocument->createElement( 
-					$node->nodeName,
-					$node->textContent
-				);
-			}
-			
-			cleanAttributes( $node, $clean, $white );
-			$out->appendChild( $clean );
-			
+function scrub(
+	\DOMNode $node,
+	&$flush = array(),
+	$white
+) {
+	if ( isset( $white[$node->nodeName] ) ) {
+		# Clean attributes first
+		cleanAttributes( $node, $white );
+		if ( $node->childNodes ) {
 			# Continue to other tags
-			scrub( $node, $clean, $white );
-			
-		} elseif ( $node->nodeType == \XML_ELEMENT_NODE ) {
-			# This tag isn't on the whitelist
-			# Extract interior. Add as plaintext
-			$text	= 
-			$out->ownerDocument->createTextNode(
-				entities( $node->textContent )
-			);
-			$out->appendChild( $text );
+			foreach ( $node->childNodes as $child ) {
+				scrub( $child, $flush, $white );
+			}
 		}
+	} elseif ( $node->nodeType == \XML_ELEMENT_NODE ) {
+		# This tag isn't on the whitelist
+		$flush[] = $node;
 	}
 }
 	
@@ -1064,16 +1046,22 @@ function scrub( \DOMNode $old, \DOMNode $out, $white ) {
  * @param $node object DOM Node
  */
 function cleanAttributes(
-	\DOMNode $node,
-	\DOMNode &$clean,
+	\DOMNode &$node,
 	$white
 ) {
+	if ( !$node->hasAttributes() ) {
+		return;
+	}
+	
 	foreach ( 
 		\iterator_to_array( $node->attributes ) as $at
 	) {
 		$n = $at->nodeName;
 		$v = $at->nodeValue;
 		
+		# Default action is to remove attribute
+		# It will only get added if it's safe
+		$node->removeAttributeNode( $at );
 		if ( in_array( $n, $white[$node->nodeName] ) ) {
 			switch( $n ) {
 				case 'longdesc':
@@ -1087,7 +1075,7 @@ function cleanAttributes(
 					$v = entities( $v );
 			}
 			
-			$clean->setAttribute( $n, $v );
+			$node->setAttribute( $n, $v );
 		}
 	}
 }
@@ -1134,14 +1122,25 @@ function clean( $html, $white, $parse = false ) {
 	# TODO Markdown format
 	# $parse
 	$err		= \libxml_use_internal_errors( true );
+	
+	# Remove control chars except linebreaks/tabs etc...
+	$html		= 
+	preg_replace(
+		'/[\x00-\x08\x0B\x0C\x0E-\x1F\x80-\x9F]/u', 
+		'', 
+		$html
+	);
+		
+	# Unicode character support
 	$html		= \mb_convert_encoding( 
 				$html, 'HTML-ENTITIES', "UTF-8" 
 			);
 	
+	# Wrap content in paragraphs
 	$html		= makeParagraphs( $html );
 	$html		= tidyup( $html );
-	$old		= new \DOMDocument();
-	$old->loadHTML( 
+	$dom		= new \DOMDocument();
+	$dom->loadHTML( 
 		$html, 
 		\LIBXML_HTML_NOIMPLIED | \LIBXML_HTML_NODEFDTD | 
 		\LIBXML_NOERROR | \LIBXML_NOWARNING | 
@@ -1149,17 +1148,30 @@ function clean( $html, $white, $parse = false ) {
 		\LIBXML_NOCDATA
 	);
 	
-	$oldBody	= 
-		$old->getElementsByTagName( 'body' )->item( 0 );
+	$domBody	= 
+	$dom->getElementsByTagName( 'body' )->item( 0 );
 	
-	$out		= new \DOMDocument();
-	$outBody	= 
-	$out->appendChild( $out->createElement( 'body' ) );
+	# Iterate through every HTML element 
+	foreach( $domBody->childNodes as $node ) {
+		scrub( $node, $flush, $white );
+	}
 	
-	scrub( $oldBody, $outBody, $white );
+	# Remove any tags not found in the whitelist
+	foreach( $flush as $node ) {
+		if ( $node->nodeName == '#text' ) {
+			continue;
+		}
+		# Replace tag has harmless text
+		$safe	= $dom->createTextNode( 
+				$dom->saveHTML( $node )
+			);
+		$node->parentNode
+			->replaceChild( $safe, $node );
+	}
+	
 	$clean		= '';
-	foreach ( $outBody->childNodes as $node ) {
-		$clean .= $out->saveHTML( $node );
+	foreach ( $domBody->childNodes as $node ) {
+		$clean .= $dom->saveHTML( $node );
 	}
 	
 	\libxml_clear_errors();
