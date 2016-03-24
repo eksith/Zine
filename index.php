@@ -946,15 +946,18 @@ function getSettings( $conf ) {
 		$data['datetime'] = 'l, M d, Y';
 	}
 	
+	$uploads	= 
+		empty( $data['uploads'] ) ? false : 
+			( ( ( int ) $data['uploads'] == 1 ) ? true : false );
+	
 	$params = array(
 		'title'		=> 
 			empty( $data['title'] ) ? 
 				'No title' : $data['title'],
-		
 		'tagline'	=>
 			empty( $data['tagline'] ) ? 
 				'No tagline' : $data['tagline'],
-		'allow_uploads'	=> $data['uploads'],
+		'allow_uploads'	=> $uploads,
 		'post_limit'	=> $data['posts'],
 		'date_format'	=> $data['datetime'],
 		'timezone'	=> $data['timezone'],
@@ -2044,7 +2047,11 @@ function() {
 		'site_posts'	=> $conf['post_limit'],
 		'site_date'	=> $conf['date_format'],
 		'site_timezone'	=> $conf['timezone'],
-		'site_copyright'=> $conf['copyright']
+		'site_copyright'=> $conf['copyright'],
+		'site_upyes'	=> 
+			$conf['allow_uploads'] ? 'selected' : '',
+		'site_upno'	=> 
+			$conf['allow_uploads'] ? '' : 'selected'
 	);
 	
 	$tpl	= loadTpl( 'tpl_manage.html' );
