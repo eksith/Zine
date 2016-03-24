@@ -22,7 +22,7 @@
 		<p><textarea rows='2' cols='60' name='summary' placeholder='Summary'>{post_summary}</textarea></p>
 		
 		<p><input type='submit' value='Save changes' /> | <input type='submit' name='draft' value='Save to draft' /></p>
-		<p><label class='file btn'>Upload files <input type='file' multiple='multiple' name='attach[]' /></label></p>
+		{upload_tpl}
 		<p><label><input type='checkbox' name='delpost' value='1' /> Delete this post (this cannot be undone)</label></p>
 	</form>
 </article>
