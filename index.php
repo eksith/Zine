@@ -949,7 +949,7 @@ function loadFile( $name ) {
  * Load configuration file ( JSON formatted )
  */
 function loadConf() {
-	$data	= loadFile( STORE . CONFIG );
+	$data	= trim( loadFile( STORE . CONFIG ) );
 	if ( empty( $data ) ) {
 		endf( MSG_CONFERR );
 	}
