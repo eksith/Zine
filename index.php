@@ -1908,11 +1908,15 @@ function() {
 	
 	authority();
 	
+	
+	$uptpl	= $conf['allow_uploads'] ?  
+			loadTpl( 'tpl_uploadfrag.html' ) : '';
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
 		'theme'		=> $conf['theme_dir'],
+		'upload_tpl'	=> $uptpl,
 		
 		'csrf'		=> getCsrf( 'post' )
 	);
@@ -1944,6 +1948,9 @@ function() {
 			$args['day'] . '/' . 
 			$args['slug'] 
 		);
+	
+	$uptpl	= $conf['allow_uploads'] ?  
+			loadTpl( 'tpl_uploadfrag.html' ) : '';
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
@@ -1955,6 +1962,7 @@ function() {
 		'post_body'	=> $post['raw'],
 		'post_summary'	=> $post['summary'],
 		'post_slug'	=> $post['slug'],
+		'upload_tpl'	=> $uptpl,
 		'edit'		=> $edit
 	);
 	$tpl	= loadTpl( 'tpl_edit.html' );
