@@ -216,14 +216,14 @@ legend {
 	text-align:		center;
 	margin:			0 auto;
 }
-input, textarea {
+input, select, textarea {
 	font:			inherit;
 	line-height:		1.4em;
 	padding:		.5em;
 	color:			#555;
 }
 input[type='text'], input[type='password'], input[type='email'], 
-input[type='number'], textarea {
+input[type='number'], select, textarea {
 	background:		#fff;
 	border:			1px solid #555;
 }
