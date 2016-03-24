@@ -13,9 +13,32 @@ The default password is password
 The storage folder requires only read/write permissions to be set. It is  
 strongly recommended that no other permissions are allowed.
 
+## Features  
+
 Zine requires minimal resources and no database. Backing up is a matter  
-of copying the storage directory. There are no special functionality  
-required besides what already comes bundled with PHP.
+of copying the storage directory. There are no special utilities or 
+functionality required besides what already comes bundled with PHP.  
+
+Changing basic site settings, including the password, is accomplished via  
+the management panel. No manual configuration file editing required.  
+
+HTML is filtered of potentially harmful tags, however embedding videos  
+to YouTube or Vimeo is supported via shortcodes.
+```
+E.G. For Youtube: 
+
+[youtube https://www.youtube.com/watch?v=RJ0ULhVKwEI]
+or
+[youtube https://youtu.be/RJ0ULhVKwEI]
+or
+[youtube RJ0ULhVKwEI]
+
+For Vimeo:
+
+[vimeo https://vimeo.com/113315619]
+or
+[vimeo 113315619]
+```
 
 ## Requirements  
 
