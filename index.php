@@ -345,8 +345,9 @@ function saveUploads( $path, $data ) {
 function deletePost( $path, $draft ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	$root	= postRoot();
-	$file	= $root . $s . $path . $s . POST_FILE;
-	$draft	= $root . $s . $path . $s . DRAFT_FILE;
+	$dir	= $root . $s . $path;
+	$file	= $dir . $s . POST_FILE;
+	$draft	= $dir . $s . DRAFT_FILE;
 	$del	= false;
 	
 	if ( file_exists( $file ) ) {
@@ -359,6 +360,7 @@ function deletePost( $path, $draft ) {
 			$del = true;
 		}
 	}
+	
 	if ( $del ) {
 		message( MSG_POSTDEL );
 	}
@@ -1157,16 +1159,18 @@ function clean( $html, $white, $parse = false ) {
 	}
 	
 	# Remove any tags not found in the whitelist
-	foreach( $flush as $node ) {
-		if ( $node->nodeName == '#text' ) {
-			continue;
+	if ( !empty( $flush ) ) {
+		foreach( $flush as $node ) {
+			if ( $node->nodeName == '#text' ) {
+				continue;
+			}
+			# Replace tag has harmless text
+			$safe	= $dom->createTextNode( 
+					$dom->saveHTML( $node )
+				);
+			$node->parentNode
+				->replaceChild( $safe, $node );
 		}
-		# Replace tag has harmless text
-		$safe	= $dom->createTextNode( 
-				$dom->saveHTML( $node )
-			);
-		$node->parentNode
-			->replaceChild( $safe, $node );
 	}
 	
 	$clean		= '';
