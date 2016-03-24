@@ -16,7 +16,7 @@ strongly recommended that no other permissions are allowed.
 ## Features  
 
 Zine requires minimal resources and no database. Backing up is a matter  
-of copying the storage directory. There are no special utilities or 
+of copying the storage directory. There are no special utilities or  
 functionality required besides what already comes bundled with PHP.  
 
 Changing basic site settings, including the password, is accomplished via  
