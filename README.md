@@ -40,7 +40,12 @@ or
 [vimeo 113315619]
 ```
 
-A simple subset of [Markdown](https://daringfireball.net/projects/markdown/) syntax is also supported
+A simple subset of [Markdown](https://daringfireball.net/projects/markdown/) syntax is also supported.
+
+E.G. To embed an uploaded image file, use markdown syntax:
+```
+![alt text](filename.jpg)
+```
 
 ## Requirements  
 
