@@ -1566,13 +1566,16 @@ function getAttach( $args, $conf ) {
 	if ( file_exists( $path ) ) {
 		ob_end_clean();
 		
-		$f	= fopen( $path, 'rb' );
 		$mime	= getMime( $path );
 		header( 'Content-Disposition: inline; filename=' . 
 				$args['file'] );
-		header( 'Content-Type: ' . $mime );
+		if ( $mime ) {
+			header( 'Content-Type: ' . $mime );
+		}
 		header( 'Content-Length: ' . filesize( $path ) );
-		fpassthru( $f );
+		
+		# Sometimes, fpassthru is blocked via Suhosin
+		readfile( $path );
 	}
 	die();
 }
