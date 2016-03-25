@@ -231,7 +231,7 @@ function getPost( $conf ) {
 	# Post content exactly as entered by the user
 	$data['raw']		= $data['body'];
 	
-	$data['body']		= clean( $data['body'], $conf['tags'] );
+	$data['body']		= clean( $data['body'], $conf['tags'], true );
 	if ( empty( $data['body'] ) ) {
 		message( MSG_BODYM );
 	}
@@ -1038,29 +1038,6 @@ function loadTpl( $name ) {
 
 /* HTML Filtering */
 
-/**
- * Convert an unformatted text block to paragraphs
- * 
- * @link http://stackoverflow.com/a/2959926
- * @param $val string Filter variable
- */
-function makeParagraphs( $val ) {
-	$out = nl2br( $val );
-	
-	/**
-	 * Turn consecutive <br>s to paragraph breaks and wrap the 
-	 * whole thing in a paragraph
-	 */
-	$out = '<p>' . preg_replace( 
-			'#(?:<br\s*/?>\s*?){2,}#', '<p></p><p>', $out 
-		) . '</p>';
-	
-	/**
-	 * Remove <br> abnormalities
-	 */
-	$out = preg_replace( '#<p>(\s*<br\s*/?>)+#', '</p><p>', $out );
-	return preg_replace( '#<br\s*/?>(\s*</p>)+#', '<p></p>', $out );
-}
 
 /**
  * HTML safe character entities in UTF-8
@@ -1186,8 +1163,7 @@ function cleanUrl( $txt, $xss = true ) {
  * @return string Cleaned and formatted HTML
  */
 function clean( $html, $white, $parse = false ) {
-	# TODO Markdown format
-	# $parse
+	
 	$err		= \libxml_use_internal_errors( true );
 	
 	# Remove control chars except linebreaks/tabs etc...
@@ -1197,15 +1173,20 @@ function clean( $html, $white, $parse = false ) {
 		'', 
 		$html
 	);
-		
+	
+	# Apply Markdown formatting
+	if ( $parse ) {
+		$html = markdown( $html );
+	}
+	
 	# Unicode character support
 	$html		= \mb_convert_encoding( 
 				$html, 'HTML-ENTITIES', "UTF-8" 
 			);
 	
-	# Wrap content in paragraphs
-	$html		= makeParagraphs( $html );
+	# Clean up HTML
 	$html		= tidyup( $html );
+	
 	$dom		= new \DOMDocument();
 	$dom->loadHTML( 
 		$html, 
@@ -1305,6 +1286,111 @@ function embeds( $html ) {
 		array_values( $filter ), 
 		$html 
 	);
+}
+
+
+/**
+ * Convert Markdown formatted text into HTML tags
+ * 
+ * Inspired by : 
+ * @link https://gist.github.com/jbroadway/2836900
+ */
+function markdown( $html ) {
+	$filters	= 
+	array(
+		# Links / Images with alt text
+		'/(\!)?\[([^\[]+)\]\(([^\)]+)\)/s'	=> 
+		function( $m ) {
+			$i = trim( $m[1] );
+			$t = trim( $m[2] );
+			$u = trim( $m[3] );
+			return 
+			empty( $i ) ?
+				sprintf( "<a href='%s'>%s</a>", $t, $u ) :
+				sprintf( "<img src='%s' alt='%s' />", $u, $t );
+		},
+		
+		# Bold / Italic / Deleted / Quote text
+		'/(\*(\*)?|_(_)?|\~\~|\:\")(.*?)\1/'	=>
+		function( $m ) {
+			$i = strlen( $m[1] );
+			$t = trim( $m[4] );
+			
+			switch( true ) {
+				case ( false !== strpos( $m[1], '~' ) ):
+					return sprintf( "<del>%s</del>", $t );
+					
+				case ( false !== strpos( $m[1], ':' ) ):
+					return sprintf( "<q>%s</q>", $t );
+					
+				default:
+					return ( $i > 1 ) ?
+						sprintf( "<strong>%s</strong>", $t ) : 
+						sprintf( "<em>%s</em>", $t );
+			}
+		},
+		
+		# Headings
+		'/([#]{1,6}+)\s?(.+)/'			=>
+		function( $m ) {
+			$h = strlen( trim( $m[1] ) );
+			$t = trim( $m[2] );
+			return sprintf( "<h%s>%s</h%s>", $h, $t, $h );
+		}, 
+		
+		# List items
+		'/\n(\*|([0-9]\.+))\s?(.+)/'		=>
+		function( $m ) {
+			$i = strlen( $m[2] );
+			$t = trim( $m[3] );
+			return ( $i > 1 ) ?
+				sprintf( '<ol><li>%s</li></ol>', $t ) : 
+				sprintf( '<ul><li>%s</li></ul>', $t );
+		},
+		
+		# Merge duplicate lists
+		'/<\/(ul|ol)>\s?<\1>/'			=> 
+		function( $m ) { return ''; },
+		
+		# Blockquotes
+		'/\n\>\s(.*)/'				=> 
+		function( $m ) {
+			$t = trim( $m[1] );
+			return sprintf( '<blockquote><p>%s</p></blockquote>', $t );
+		},
+		
+		# Merge duplicate blockquotes
+		'/<\/(p)><\/(blockquote)>\s?<\2>/'	=>
+		function( $m ) { return ''; },
+		
+		# Code
+		'/`(.*)`/'				=>
+		function( $m ) {
+			$t = trim( $m[1] );
+			return sprintf( '<code>%s</code>', $t );
+		},
+		
+		# Horizontal rule
+		'/\n-{5,}/'				=>
+		function( $m ) { return '<hr />'; },
+		
+		'/\n([^\n(\<\/ul|ol|li|h|blockquote)?]+)\n/'		=>
+		function( $m ) {
+			return '</p><p>';
+		}
+	);
+	
+	if ( exists( 'preg_replace_callback_array' ) ) {
+		return
+		trim( preg_replace_callback_array( $filters, $html ) );
+	}
+	
+	foreach( $filters as $regex => $handler ) {
+		$html =	preg_replace_callback( 
+				$regex, $handler, $html
+			);
+	}
+	return trim( $html );
 }
 
 /**
