@@ -2151,7 +2151,7 @@ function() {
 	array(
 		'page_title'	=> $conf['title'],
 		'csrf'		=> getCsrf( 'login' ),
-		'theme'		=> $conf['theme_dir']
+		'theme'		=> getTheme( $conf )
 	);
 	
 	$tpl	= loadTpl( $conf, 'tpl_login.html' );
