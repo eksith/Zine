@@ -40,6 +40,8 @@ or
 [vimeo 113315619]
 ```
 
+A simple subset of [Markdown](https://daringfireball.net/projects/markdown/) syntax is also supported
+
 ## Requirements  
 
   - PHP 5.6 or greater ( 7+ preferable )  
