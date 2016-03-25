@@ -231,10 +231,30 @@ function getPost( $conf ) {
 	# Post content exactly as entered by the user
 	$data['raw']		= $data['body'];
 	
-	$data['body']		= clean( $data['body'], $conf['tags'], true );
+	
+	$data['slug']		= 
+		slugify( $data['title'], $data['slug'] );
+		
+	$pub			= 
+		empty( $data['pubdate'] ) ?
+			time() : strtotime( $data['pubdate'] . ' UTC' );
+	
+	if ( empty( $data['edit'] ) ) {
+		$path	= datePath( $data['slug'], $pub );
+	} else {
+		$edit	= editTime( $data['edit'] );
+		$path	= checkEdit( $edit );
+	}
+	
+	# Uploads view path
+	$uppath			= '/read/' . $path . '/';
+	
+	$data['body']		= 
+		clean( $data['body'], $conf['tags'], true, $uppath );
 	if ( empty( $data['body'] ) ) {
 		message( MSG_BODYM );
 	}
+	
 	
 	$data['title']		= 
 		empty( $data['title'] ) ? 
@@ -243,14 +263,10 @@ function getPost( $conf ) {
 	$data['summary']	= 
 		empty( $data['summary'] ) ? 
 			smartTrim( strip_tags( $data['body'] ), SUMMARY_LEN ) : 
-			strip_tags( clean( $data['summary'], $conf['tags'] ) );
-	
-	$data['slug']		= 
-		slugify( $data['title'], $data['slug'] );
-		
-	$pub			= 
-		empty( $data['pubdate'] ) ?
-			time() : strtotime( $data['pubdate'] . ' UTC' );
+			strip_tags( 
+				clean( $data['summary'], 
+					$conf['tags'], true, $uppath ) 
+			);
 	
 	$params			= 
 	array(
@@ -264,15 +280,9 @@ function getPost( $conf ) {
 	
 	$draft			= isset( $data['draft'] ) ? 
 					true : false;
-	if ( empty( $data['edit'] ) ) {
-		$path	= datePath( $data['slug'], $pub );
-	} else {
-		$edit	= editTime( $data['edit'] );
-		$path	= checkEdit( $edit );
-	}
+	
 	return array( $path, $params, $draft );
 }
-
 
 /* Post storage and pagination */
 
@@ -391,31 +401,19 @@ function saveUploads( $path ) {
 }
 
 /**
- * Remove a post permanently
+ * Remove a post and any attachments permanently
  */
-function deletePost( $path, $draft ) {
+function deletePost( $path ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	$root	= postRoot();
 	$dir	= $root . $s . $path;
-	$file	= $dir . $s . POST_FILE;
-	$draft	= $dir . $s . DRAFT_FILE;
-	$del	= false;
 	
-	if ( file_exists( $file ) ) {
-		if ( unlink( $file ) ) {
-			$del = true;
-		}
-	}
-	if ( file_exists( $draft ) ) {
-		if ( unlink( $draft ) ) {
-			$del = true;
-		}
-	}
+	$files	= array_filter( glob( $dir . $s . '*' ), 'is_file' );
+	array_map( 'unlink', $files );
 	
-	if ( $del ) {
+	if ( rmdir( $dir ) ) {
 		message( MSG_POSTDEL );
 	}
-	
 	message( MSG_POSTNDEL );
 }
 
@@ -1129,7 +1127,7 @@ function cleanAttributes(
  * 
  * @param string $txt Raw URL attribute value
  */
-function cleanUrl( $txt, $xss = true ) {
+function cleanUrl( $txt, $xss = true, $prefix = '' ) {
 	if ( empty( $txt ) ) {
 		return '';
 	}
@@ -1148,9 +1146,9 @@ function cleanUrl( $txt, $xss = true ) {
 			return '';
 		}
 		
-		return $txt;
+		return  $txt;
 	}
-	return '';
+	return entities( $prefix . $txt );
 }
 
 /**
@@ -1162,7 +1160,7 @@ function cleanUrl( $txt, $xss = true ) {
  * 
  * @return string Cleaned and formatted HTML
  */
-function clean( $html, $white, $parse = false ) {
+function clean( $html, $white, $parse = false, $prefix = '' ) {
 	
 	$err		= \libxml_use_internal_errors( true );
 	
@@ -1176,7 +1174,7 @@ function clean( $html, $white, $parse = false ) {
 	
 	# Apply Markdown formatting
 	if ( $parse ) {
-		$html = markdown( $html );
+		$html = markdown( $html, $prefix );
 	}
 	
 	# Unicode character support
@@ -1295,15 +1293,15 @@ function embeds( $html ) {
  * Inspired by : 
  * @link https://gist.github.com/jbroadway/2836900
  */
-function markdown( $html ) {
+function markdown( $html, $prefix = '' ) {
 	$filters	= 
 	array(
 		# Links / Images with alt text
 		'/(\!)?\[([^\[]+)\]\(([^\)]+)\)/s'	=> 
-		function( $m ) {
+		function( $m ) use ( $prefix ) {
 			$i = trim( $m[1] );
 			$t = trim( $m[2] );
-			$u = trim( $m[3] );
+			$u = cleanUrl( trim( $m[3] ), true, $prefix );
 			return 
 			empty( $i ) ?
 				sprintf( "<a href='%s'>%s</a>", $t, $u ) :
@@ -1448,7 +1446,6 @@ function indexPages( $args, $conf, $paths ) {
 	if ( $page > 1 ) {
 		if ( 0 <= $pm1 ) {
 			if ( count( $paths ) < $conf['post_limit'] ) {
-				$npa .= 
 				pageLink( 'Next', $pre . 'page'. $pm1 );
 			}
 			$npa .= 
@@ -1472,6 +1469,7 @@ function indexPages( $args, $conf, $paths ) {
 		$npa .= 
 		pageLink( 'Previous', '/' . $pre . 'page'. ( $page + 1 ) );
 	}
+	
 	
 	return $npa;
 }
@@ -1519,6 +1517,53 @@ function siblingPages( $pages, $args ) {
 	return $npa;
 }
 
+
+/* File attachment downloading */
+
+/**
+ * Get the file's MIME type 
+ */
+function getMime( $file ) {
+	$info = new finfo();
+	if ( is_resource( $info ) ) {
+		return $info->file( $file, \FILEINFO_MIME_TYPE ); 
+	}
+	return false;
+}
+
+/**
+ * Get the attachment from the post's data directory 
+ * Excluding any blog.post or draft.post files
+ */
+function getAttach( $args, $conf ) {
+	if ( headers_sent() ) {
+		die();
+	}
+	
+	sessionCheck();
+	\session_write_close();
+	
+	$s	= \DIRECTORY_SEPARATOR;
+	$root	= postRoot();
+	$path	= $root . $s . implode( $s, $args );
+	
+	if ( false !== strpos( $args['file'], '.post' ) ) {
+		message( MSG_NOTFOUND );
+	}
+	
+	if ( file_exists( $path ) ) {
+		ob_end_clean();
+		
+		$f	= fopen( $path, 'rb' );
+		$mime	= getMime( $path );
+		header( 'Content-Disposition: inline; filename=' . 
+				$args['file'] );
+		header( 'Content-Type: ' . $mime );
+		header( 'Content-Length: ' . filesize( $path ) );
+		fpassthru( $f );
+	}
+	die();
+}
 
 
 
@@ -1792,7 +1837,8 @@ function route( $routes ) {
 		':month'=> '(?<month>[0-3][0-9]{1})',
 		':day'	=> '(?<day>[0-9][0-9]{1})',
 		':slug'	=> '(?<slug>[\pL\-\d]{1,100})',
-		':mode'	=> '(?<mode>edit|drafts)'
+		':mode'	=> '(?<mode>edit|drafts)',
+		':file'	=> '(?<file>[\pL_\-\d\.\s]{1,120})'
 	);
 	$k		= array_keys( $markers );
 	$v		= array_values( $markers );
@@ -1959,6 +2005,16 @@ function() {
 	echo render( $vars, $tpl );
 	
 	die();
+};
+
+/**
+ * Return a file attachment
+ */
+$download	= 
+function() {
+	$args	= func_get_args()[0];
+	$conf	= loadConf();
+	getAttach( $args, $conf );
 };
 
 /**
@@ -2223,6 +2279,7 @@ $routes = array(
 	array( 'get', ':mode/:year/:month/:day/page:page', $archive ),
 	
 	array( 'get', 'read/:year/:month/:day/:slug', $reading ), 
+	array( 'get', 'read/:year/:month/:day/:slug/:file', $download ), 
 	array( 'get', ':mode/:year/:month/:day/:slug', $editing ),
 	array( 'post', 'edit', $save ),
 	
