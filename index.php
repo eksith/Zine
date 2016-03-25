@@ -354,6 +354,18 @@ function parseUploads() {
 }
 
 /**
+ * Filter upload file name into a safe format
+ */
+function filterUpName( $name ) {
+	if ( empty( $name ) ) {
+		return '_';
+	}
+	
+	$name	= preg_replace('/[^\pL_\-\d\.\s]', ' ' );
+	return preg_replace( '/\s+/', '-', trim( $name ) );
+}
+
+/**
  * Rename file to prevent overwriting existing ones by 
  * appending _i where 'i' is incremented by 1 until no 
  * more files with the same name are found
@@ -391,7 +403,7 @@ function saveUploads( $path ) {
 			}
 			
 			$tn	= $file['tmp_name'];
-			$n	= $file['name'];
+			$n	= filterUpName( $file['name'] );
 			
 			# Check for duplicates and rename 
 			$up	= dupRename( $store . $n );
@@ -1208,7 +1220,7 @@ function clean( $html, $white, $parse = false, $prefix = '' ) {
 			if ( $node->nodeName == '#text' ) {
 				continue;
 			}
-			# Replace tag has harmless text
+			# Replace tag with harmless text
 			$safe	= $dom->createTextNode( 
 					$dom->saveHTML( $node )
 				);
