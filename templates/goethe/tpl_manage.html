@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html xmlns='http://www.w3.org/1999/xhtml' dir='ltr'>
+<head>
+<meta http-equiv='Content-Type' content='text/html; charset=utf-8' />
+<meta name='viewport' content='width=device-width' />
+<link rel='stylesheet' href='{theme}style.css' />
+<title>{page_title}</title>
+</head>
+<body>
+<header>
+	<h1><a href='/'>{page_title}</a></h1>
+</header>
+<article class='post'>
+	<form action='/settings' method='post'>
+		<input type='hidden' name='csrf' value='{csrf_settings}' />
+		<h4>Site settings</h4>
+		<p><input type='text' name='title' placeholder='Blog title' value='{site_title}' required /></p>
+		<p><textarea name='tagline' rows='2' cols='60' placeholder='Tagline' required>{site_tagline}</textarea></p>
+		<p><input type='number' name='posts' placeholder='Posts per page' min='1' max='100' value='{site_posts}' class='sm' required /> <label for='posts'>Posts per page</label></p>
+		<p><input type='text' name='datetime' placeholder='Date time' value='{site_date}' class='sm' required /> <label for='dateformat'>Date and time format</label> <a href='https://secure.php.net/manual/en/function.date.php'>(?)</a></p>
+		<p><input type='text' name='timezone' placeholder='Timezone' value='{site_timezone}' class='sm' required /> <label for='timezone'>Timezone</label> <a href='https://secure.php.net/manual/en/timezones.php'>(?)</a></p>
+		<p>
+			<select name='uploads'>
+				<option value='1' {site_upyes}>Enable file uploading</option>
+				<option value='0' {site_upno}>Disable file uploading</option>
+			</select>
+		</p>
+		<p><label for='copyright'>Copyright or Footer text</label> <textarea name='copyright' placeholder='Copyright (c)'>{site_copyright}</textarea></p>
+		<p><input type='submit' value='Save settings' /></p>
+	</form>
+	<hr />
+</article>
+
+<article class='post'>
+	<form action='/changepass' method='post'>
+		<h4>Login credentials</h4>
+		<input type='hidden' name='csrf' value='{csrf_pass}' />
+		<p><input type='password' name='oldpassword' placeholder='old password' required /> 
+		 <input type='password' name='newpassword' placeholder='new password' required /></p>
+		<p><input type='submit' value='Change password' /></p>
+	</form>
+</article>
+
+<footer>
+	<nav><a href='/'>Home</a> | <a href='/drafts'>Drafts</a> | <a href='/new'>New post</a> | <a href='/logout'>Logout</a></nav>
+</footer>
+</body>
+</html>
