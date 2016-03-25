@@ -1041,8 +1041,16 @@ function saveConf( array $conf ) {
 /**
  * Load a specific template file
  */
-function loadTpl( $name ) {
-	return loadFile( TEMPLATES . $name );
+function loadTpl( $conf, $name ) {
+	return loadFile( TEMPLATES . $conf['theme'] . 
+		\DIRECTORY_SEPARATOR . $name );
+}
+
+/**
+ * Get the file theme
+ */
+function getTheme( $conf ) {
+	return $conf['theme_dir'] . $conf['theme'] . '/';
 }
 
 
@@ -1419,7 +1427,7 @@ function pageLink( $text, $url, $tool = '' ) {
  * Format each post into the post template
  */
 function parsePosts( $posts, $paths, $args, $conf ) {
-	$ptpl	= loadTpl( 'tpl_postfrag.html' );
+	$ptpl	= loadTpl( $conf, 'tpl_postfrag.html' );
 	$parsed	= '';
 	$i	= 0;
 	
@@ -1889,11 +1897,11 @@ function message( $msg, $scrub = false ) {
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
-		'theme'		=> $conf['theme_dir'],
+		'theme'		=> getTheme( $conf ),
 		'page_body'	=> $msg
 	);
 	
-	$tpl	= loadTpl( 'tpl_message.html' );
+	$tpl	= loadTpl( $conf, 'tpl_message.html' );
 	$html	= render( $vars, $tpl );
 	if ( $scrub ) {
 		endf( $html );
@@ -1928,12 +1936,13 @@ function() {
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
 		'page_body'	=> $parsed,
-		'theme'		=> $conf['theme_dir'],
+		'theme'		=> getTheme( $conf ),
+		
 		'navpages'	=> $npa,
 		'copyright'	=> $conf['copyright']
 	);
 	
-	$tpl	= loadTpl( 'tpl_index.html' );
+	$tpl	= loadTpl( $conf, 'tpl_index.html' );
 	echo render( $vars, $tpl );
 	
 	die();
@@ -1959,7 +1968,7 @@ function() {
 	}
 	
 	$npa	= indexPages( $args, $conf, $paths );
-	$tpl	= loadTpl( 'tpl_index.html' );
+	$tpl	= loadTpl( $conf, 'tpl_index.html' );
 	$parsed	= parsePosts( $posts, $paths, $args, $conf );
 	
 	$vars	= 
@@ -1967,7 +1976,8 @@ function() {
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
 		'page_body'	=> $parsed,
-		'theme'		=> $conf['theme_dir'],
+		'theme'		=> getTheme( $conf ),
+		
 		'navpages'	=> $npa,
 		'copyright'	=> $conf['copyright']
 	);
@@ -2007,7 +2017,8 @@ function() {
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
-		'theme'		=> $conf['theme_dir'],
+		'theme'		=> getTheme( $conf ),
+		
 		'post_title'	=> $post['title'],
 		'post_date'	=> $pdate,
 		'post_path'	=> $ppath,
@@ -2016,7 +2027,7 @@ function() {
 		'navpages'	=> $npa,
 		'copyright'	=> $conf['copyright']
 	);
-	$tpl	= loadTpl( 'tpl_post.html' );
+	$tpl	= loadTpl( $conf, 'tpl_post.html' );
 	echo render( $vars, $tpl );
 	
 	die();
@@ -2067,17 +2078,17 @@ function() {
 	
 	
 	$uptpl	= $conf['allow_uploads'] ?  
-			loadTpl( 'tpl_uploadfrag.html' ) : '';
+			loadTpl( $conf, 'tpl_uploadfrag.html' ) : '';
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
-		'theme'		=> $conf['theme_dir'],
+		'theme'		=> getTheme( $conf ),
 		'upload_tpl'	=> $uptpl,
 		
 		'csrf'		=> getCsrf( 'post' )
 	);
-	$tpl	= loadTpl( 'tpl_new.html' );
+	$tpl	= loadTpl( $conf, 'tpl_new.html' );
 	echo render( $vars, $tpl );
 	
 	die();
@@ -2107,12 +2118,12 @@ function() {
 		);
 	
 	$uptpl	= $conf['allow_uploads'] ?  
-			loadTpl( 'tpl_uploadfrag.html' ) : '';
+			loadTpl( $conf, 'tpl_uploadfrag.html' ) : '';
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
-		'theme'		=> $conf['theme_dir'],
+		'theme'		=> getTheme( $conf ),
 		
 		'csrf'		=> getCsrf( 'post' ),
 		'post_title'	=> $post['title'],
@@ -2122,7 +2133,7 @@ function() {
 		'upload_tpl'	=> $uptpl,
 		'edit'		=> $edit
 	);
-	$tpl	= loadTpl( 'tpl_edit.html' );
+	$tpl	= loadTpl( $conf, 'tpl_edit.html' );
 	echo render( $vars, $tpl );
 	
 	die();
@@ -2143,7 +2154,7 @@ function() {
 		'theme'		=> $conf['theme_dir']
 	);
 	
-	$tpl	= loadTpl( 'tpl_login.html' );
+	$tpl	= loadTpl( $conf, 'tpl_login.html' );
 	echo render( $vars, $tpl );
 	
 	die();
@@ -2203,7 +2214,7 @@ function() {
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
-		'theme'		=> $conf['theme_dir'],
+		'theme'		=> getTheme( $conf ),
 		
 		'csrf_pass'	=> getCsrf( 'changePass' ),
 		'csrf_settings'	=> getCsrf( 'settings' ),
@@ -2219,7 +2230,7 @@ function() {
 			$conf['allow_uploads'] ? '' : 'selected'
 	);
 	
-	$tpl	= loadTpl( 'tpl_manage.html' );
+	$tpl	= loadTpl( $conf, 'tpl_manage.html' );
 	echo render( $vars, $tpl );
 	
 	die();
