@@ -616,13 +616,24 @@ function archivePaginate( $args, $conf ) {
 /**
  * Paginate the front page index listing
  */
-function indexPaginate( $args, $conf ) {
-	$year		= ( int ) date( 'Y' );
+function indexPaginate( $args, $conf, $mode = 'index' ) {
+	switch( $mode ) {
+		case 'pending':
+			$year	= ( ( int ) date( 'Y' ) ) + 10;
+			break;
+			
+		default:
+			$year	= ( int ) date( 'Y' );
+	}
 	$page		= isset( $args['page'] ) ? $args['page'] : 1;
 	
 	$offset		= ( $page - 1 ) * $conf['post_limit'];
+	$paths		= array();
+	while( empty( $paths ) && $year > YEAR_END ) {
+		$paths	= searchDays( array( 'year' => $year ) );
+		$year--;
+	}
 	
-	$paths		= searchFrom( $year );
 	return 
 	array_slice( $paths, $offset, $conf['post_limit'] );
 }
@@ -1041,16 +1052,47 @@ function saveConf( array $conf ) {
 /**
  * Load a specific template file
  */
-function loadTpl( $conf, $name ) {
+function loadTpl( $conf, $name, $admin = false ) {
+	if ( $admin ) {
+		return loadFile( TEMPLATES . 'admin' . 
+			\DIRECTORY_SEPARATOR . $name );
+	}
 	return loadFile( TEMPLATES . $conf['theme'] . 
 		\DIRECTORY_SEPARATOR . $name );
 }
 
 /**
- * Get the file theme
+ * Get the configured theme
  */
 function getTheme( $conf ) {
 	return $conf['theme_dir'] . $conf['theme'] . '/';
+}
+
+/**
+ * Get the configured theme
+ */
+function getAdminTheme( $conf ) {
+	return $conf['theme_dir'] . 'admin' . '/';
+}
+
+/**
+ * Get all available themes except 'admin'
+ */
+function getAvailableThemes( $conf ) {
+	$dir	= TEMPLATES;
+	$themes	= array_filter( 
+			glob( $dir . '*' ), 
+			function( $t ) {
+				if ( 
+					is_dir( $t ) && 
+					false === strpos( $t, 'admin' )
+				) {
+					return true;
+				}
+			}
+		);
+	
+	var_dump( $themes );
 }
 
 
@@ -1860,7 +1902,7 @@ function route( $routes ) {
 		':month'=> '(?<month>[0-3][0-9]{1})',
 		':day'	=> '(?<day>[0-9][0-9]{1})',
 		':slug'	=> '(?<slug>[\pL\-\d]{1,100})',
-		':mode'	=> '(?<mode>edit|drafts)',
+		':mode'	=> '(?<mode>edit|drafts|pending)',
 		':file'	=> '(?<file>[\pL_\-\d\.\s]{1,120})'
 	);
 	$k		= array_keys( $markers );
@@ -2078,17 +2120,18 @@ function() {
 	
 	
 	$uptpl	= $conf['allow_uploads'] ?  
-			loadTpl( $conf, 'tpl_uploadfrag.html' ) : '';
+		loadTpl( $conf, 'tpl_uploadfrag.html', true ) : '';
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
-		'theme'		=> getTheme( $conf ),
+		'theme'		=> getAdminTheme( $conf ),
 		'upload_tpl'	=> $uptpl,
 		
-		'csrf'		=> getCsrf( 'post' )
+		'csrf'		=> getCsrf( 'post' ),
+		'copyright'	=> $conf['copyright']
 	);
-	$tpl	= loadTpl( $conf, 'tpl_new.html' );
+	$tpl	= loadTpl( $conf, 'tpl_new.html', true );
 	echo render( $vars, $tpl );
 	
 	die();
@@ -2098,13 +2141,7 @@ function() {
  * Editing an existing post
  */
 $editing	= 
-function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
-	authority();
-	
-	$args	= func_get_args()[0];
+function( $args, $conf ) {
 	$post	= findPost( $args );
 	if ( empty( $post ) ) {
 		message( MSG_NOTFOUND );
@@ -2118,12 +2155,14 @@ function() {
 		);
 	
 	$uptpl	= $conf['allow_uploads'] ?  
-			loadTpl( $conf, 'tpl_uploadfrag.html' ) : '';
+		loadTpl( $conf, 'tpl_uploadfrag.html', true ) :
+		loadTpl( $conf, 'tpl_uploadfragoff.html', true );
+	
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
-		'theme'		=> getTheme( $conf ),
+		'theme'		=> getAdminTheme( $conf ),
 		
 		'csrf'		=> getCsrf( 'post' ),
 		'post_title'	=> $post['title'],
@@ -2133,8 +2172,48 @@ function() {
 		'upload_tpl'	=> $uptpl,
 		'edit'		=> $edit
 	);
-	$tpl	= loadTpl( $conf, 'tpl_edit.html' );
+	$tpl	= loadTpl( $conf, 'tpl_edit.html', true );
 	echo render( $vars, $tpl );
+	
+	die();
+};
+
+$drafts		= 
+function( $args, $conf ) {
+	die( 'Drafts TBA' );
+};
+
+
+$pending	= 
+function( $args, $conf ) {
+	die( 'Pending TBA' );
+};
+
+
+/**
+ * Page view mode
+ */
+$mode		=
+function() use ( $editing, $drafts, $pending ) {
+	$conf	= loadConf();
+	\date_default_timezone_set( $conf['timezone'] );
+	
+	authority();
+	$args	= func_get_args()[0];
+	
+	switch( $args['mode'] ) {
+		case 'edit':
+			$editing( $args, $conf );
+			break;
+			
+		case 'drafts':
+			$drafts( $args, $conf );
+			break;
+			
+		case 'pending':
+			$pending( $args, $conf );
+			break;
+	}
 	
 	die();
 };
@@ -2214,7 +2293,7 @@ function() {
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
-		'theme'		=> getTheme( $conf ),
+		'theme'		=> getAdminTheme( $conf ),
 		
 		'csrf_pass'	=> getCsrf( 'changePass' ),
 		'csrf_settings'	=> getCsrf( 'settings' ),
@@ -2223,14 +2302,14 @@ function() {
 		'site_posts'	=> $conf['post_limit'],
 		'site_date'	=> $conf['date_format'],
 		'site_timezone'	=> $conf['timezone'],
-		'site_copyright'=> $conf['copyright'],
 		'site_upyes'	=> 
 			$conf['allow_uploads'] ? 'selected' : '',
 		'site_upno'	=> 
-			$conf['allow_uploads'] ? '' : 'selected'
+			$conf['allow_uploads'] ? '' : 'selected',
+		'site_copyright'=> $conf['copyright']
 	);
 	
-	$tpl	= loadTpl( $conf, 'tpl_manage.html' );
+	$tpl	= loadTpl( $conf, 'tpl_manage.html', true );
 	echo render( $vars, $tpl );
 	
 	die();
@@ -2291,8 +2370,8 @@ function() {
 $routes = array(
 	array( 'get', '', $index ), 
 	array( 'get', 'page:page', $index ), 
-	array( 'get', ':mode', $index ), 
-	array( 'get', ':mode/page:page', $index ), 
+	array( 'get', ':mode', $mode ), 
+	array( 'get', ':mode/page:page', $mode ), 
 	
 	array( 'get', ':year', $archive ), 
 	array( 'get', ':year/page:page', $archive ), 
@@ -2302,11 +2381,10 @@ $routes = array(
 	
 	array( 'get', ':year/:month/:day', $archive ),
 	array( 'get', ':year/:month/:day/page:page', $archive ),
-	array( 'get', ':mode/:year/:month/:day/page:page', $archive ),
 	
 	array( 'get', 'read/:year/:month/:day/:slug', $reading ), 
 	array( 'get', 'read/:year/:month/:day/:slug/:file', $download ), 
-	array( 'get', ':mode/:year/:month/:day/:slug', $editing ),
+	array( 'get', ':mode/:year/:month/:day/:slug', $mode ),
 	array( 'post', 'edit', $save ),
 	
 	array( 'get', 'new', $creating ),
