@@ -13,6 +13,8 @@ The default password is password
 The storage folder requires only read/write permissions to be set. It is  
 strongly recommended that no other permissions are allowed.
 
+![zine](zine_.png)
+
 ## Features  
 
 Zine requires minimal resources and no database. Backing up is a matter  
