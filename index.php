@@ -1095,6 +1095,14 @@ function getAvailableThemes( $conf ) {
 	var_dump( $themes );
 }
 
+/**
+ * Format datetime into datetime-local input format
+ */
+function dateTimeFormat( $pub ) {
+	$t = ( int ) $pub;
+	return date( 'Y-m-d', $t ) . 'T' . date( 'H:i', $t );
+}
+
 
 /* HTML Filtering */
 
@@ -2118,9 +2126,10 @@ function() {
 	
 	authority();
 	
-	
 	$uptpl	= $conf['allow_uploads'] ?  
-		loadTpl( $conf, 'tpl_uploadfrag.html', true ) : '';
+		loadTpl( $conf, 'tpl_uploadfrag.html', true ) :
+		loadTpl( $conf, 'tpl_uploadfragoff.html', true );
+		
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
@@ -2169,8 +2178,10 @@ function( $args, $conf ) {
 		'post_body'	=> $post['raw'],
 		'post_summary'	=> $post['summary'],
 		'post_slug'	=> $post['slug'],
+		'post_pub'	=> dateTimeFormat( $post['pubdate'] ),
 		'upload_tpl'	=> $uptpl,
-		'edit'		=> $edit
+		'edit'		=> $edit,
+		'copyright'	=> $conf['copyright']
 	);
 	$tpl	= loadTpl( $conf, 'tpl_edit.html', true );
 	echo render( $vars, $tpl );
@@ -2306,7 +2317,8 @@ function() {
 			$conf['allow_uploads'] ? 'selected' : '',
 		'site_upno'	=> 
 			$conf['allow_uploads'] ? '' : 'selected',
-		'site_copyright'=> $conf['copyright']
+		'site_copyright'=> $conf['copyright'],
+		'copyright'	=> $conf['copyright']
 	);
 	
 	$tpl	= loadTpl( $conf, 'tpl_manage.html', true );
