@@ -1,12 +1,13 @@
 $boot(function() {
+	var fdata = new FormData();
 	
 	datetime('#pubdate');
 	autosize('#body');
 	autosize('#summary');
 	wysiwyg('#body','#html','#edtrig');
-	//filedrop('#drop', '#dropped', '#attach');
+	filedrop('#drop', '#dropped', '#attach', fdata);
 	
-	attachView('#attach', '#dropped');
+	attachView('#attach', '#dropped', fdata);
 	
 	// Enable elements to be shown after page load
 	$each( $all('.showload'), function(e, i, t) {

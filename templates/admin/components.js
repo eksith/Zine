@@ -213,27 +213,10 @@ var filePreview	= (function(dest,src) {
 	}
 });
 
-var fileParse = (function(fi, pr, fd,files) {
-	var upf	= $attribute_of(fi, 'name');
-	for (var i=0; i<files.length; i++) {
-		if (!!window.formdata) {
-			fd.append(upf, files[i]);
-		}
-		var r		= new FileReader();
-		r.onloadend = (function(file) {
-			return function(e) {
-				preview(pr, e, file);
-			};
-		})(src.files[i]);
-		r.readAsDataAsText(src.files[i]);
-	}
-});
-
-var attachView	= (function(file, view) {
+var attachView	= (function(file, view, fd) {
 	var 
 	src	= $get(file),
-	dest	= $get(view),
-	names	= [];
+	dest	= $get(view)
 	
 	if (!src || !dest) {
 		return;
@@ -247,8 +230,25 @@ var attachView	= (function(file, view) {
 	$on( src, 'change', update );
 });
 
+var fileParse = (function(fi, pr, fd, files) {
+	var upf	= $attribute_of(fi, 'name');
+	
+	for (var i = 0; i < files.length; i++) {
+		if (!!window.formdata) {
+			fd.append(upf, files[i]);
+		}
+		var r		= new FileReader();
+		r.onloadend = (function(file) {
+			return function(e) {
+				preview(pr, e, file);
+			};
+		})(files[i]);
+		r.readAsDataURL(files[i]);
+	}
+});
+
 // Needs more work
-var filedrop	= (function(dr, st, field) {
+var filedrop	= (function(dr, st, field, fd) {
 	var 
 	d	= $get(dr),
 	fi	= $get(field),
@@ -260,12 +260,10 @@ var filedrop	= (function(dr, st, field) {
 	
 	var
 	filter	= function(e) {
-		var
-		files	= e.dataTransfer.files,
-		fd	= new FormData();
+		var files	= e.dataTransfer.files;
 		
 		if (e.dataTransfer.types) {
-			fileParse(fi,pr, fd,files);
+			fileParse(fi,pr,fd,files);
 		} else {
 			alert( 'Drag and Drop is not available' );
 		}
@@ -296,7 +294,6 @@ var wysiwyg = (function(text,body,trig) {
 	if (!p || !t || !et) {
 		return;
 	}
-	
 	
 	var 
 	bplace	= $attribute_of( t, 'placeholder' ) || 'Body',
