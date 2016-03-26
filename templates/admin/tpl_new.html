@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<title>Zine</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<link rel='stylesheet' href='{theme}style.css' />
+	<link rel='stylesheet' href='{theme}wysiwyg.css' />
+</head>
+<body>
+<nav class="main clearfix showload">
+	<input type='checkbox' id='mainnav' class='trig' />
+	<ul class="clearfix">
+		<li><a href="/">Home</a></li>
+		<li class='active'><a href="/new">New</a></li>
+		<li><a href="/drafts">Drafts</a></li>
+		<li><a href="/pending">Pending</a></li>
+		<li><a href="/manage">Settings</a></li>
+		<li><a href="/logout">Logout</a></li>
+	</ul>
+	<label for='mainnav' id='pull'>{page_title}</label>
+</nav>
+<article>
+<main>
+<form class='container w' action='/new' method='post' enctype="multipart/form-data">
+	<input type='hidden' name='csrf' value='{csrf}' />
+	<p class='n'><input type='text' name='title' id='title' class='full' 
+		placeholder='Title' maxlength='80' pattern='.{3,80}' required /></p>
+	<p class='n'>
+		<div class='pkg'>
+		<input type='checkbox' class='trig' id='edtrig' checked />
+		<span class='moon'>
+			<textarea name='body' id='body' rows='8' cols='60' 
+				class='full' placeholder='Body' required ></textarea>
+		</span>
+		<span id='html' class='sun'></span>
+		<div class='showload sm'>	
+			<label class='opt' for='edtrig' data-markup='preview' 
+				data-format='source'></label>
+			<label class='opt' for='optrig'>options</label>
+			<label class='opt' for='abtrig'>abstract</label>
+			<label class='opt' for='mdtrig'>media</label>
+		</div>
+		</div>
+	</p>
+	
+	<div class='pkg'>
+		<input type='radio' name='tab' class='trig' id='optrig' checked />
+		<p class='moon'><input type='text' name='slug' id='slug' 
+			placeholder='path-to-post' /> 
+		<input type='datetime-local' id='pubdate' name='pubdate' 
+			placeholder='publish date (now)' value='' />
+		<input type='submit' value='post' /> | 
+		<input type='submit' name='draft' value='save draft' /></p>	
+	</div>
+	
+	<div class='pkg'>
+		<input type='radio' name='tab' class='trig' id='abtrig' />
+		<p class='moon'><textarea name='summary' class='abs' rows='2' 
+				id='summary' cols='60' placeholder='Abstract'></textarea></p>
+		</p>
+	</div>
+	
+	<div class='pkg'>
+		{upload_tpl}
+	</div>
+</form>
+
+</main>
+</article>
+<footer>
+	<p>{copyright}</p>
+</footer>
+<script type='text/javascript' src='{theme}jzed.js'></script>
+<script type='text/javascript' src='{theme}components.js'></script>
+<script type='text/javascript' src='{theme}medium-editor.min.js'></script>
+<script type='text/javascript' src='{theme}showdown.min.js'></script>
+<script type='text/javascript' src='{theme}to-markdown.min.js'></script>
+<script type='text/javascript' src='{theme}manage_edit.js'></script>
+</body>
+</html>
