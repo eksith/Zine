@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<title>Zine</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<link rel='stylesheet' href='{theme}style.css' />
+</head>
+<body>
+<nav class="main clearfix showload">
+	<input type='checkbox' id='mainnav' class='trig' />
+	<ul class="clearfix">
+		<li><a href="/">Home</a></li>
+		<li><a href="/new">New</a></li>
+		<li><a href="/drafts">Drafts</a></li>
+		<li class='active'><a href="/pending">Pending</a></li>
+		<li><a href="/manage">Settings</a></li>
+		<li><a href="/logout">Logout</a></li>
+	</ul>
+	<label for='mainnav' id='pull'>{page_title}</label>
+</nav>
+<article>
+<main>
+	<div class='container w'>
+	<ul class='thread'>
+{page_body}
+	</ul>
+<div class='block'>
+<nav class='nextprev'>
+	<ul class='page'>{navpages}</ul>
+</nav>
+</div>
+	</div>
+<footer>
+	{copyright}
+</footer>
+<script type='text/javascript' src='{theme}jzed.js'></script>
+<script type='text/javascript' src='{theme}components.js'></script>
+<script type='text/javascript' src='{theme}manage_settings.js'></script>
+</body>
+</html>
