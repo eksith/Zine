@@ -14,6 +14,20 @@ function browser() {
 	}
 }
 
+// Root path of this file
+function getRoot() {
+	var
+	sc = $all("script[src$='components.js']");
+	if ( sc.length ) {
+		var
+		s = sc[0].src;
+		i = s.lastIndexOf('/');
+		return s.substr(0, i+1);
+	}
+	
+	return "/templates/admin/";
+}
+
 // Default option constructor
 function defaults(def, opts) {
 	if(opts != null && opts != undefined && opts != 'undefined') {
@@ -191,7 +205,7 @@ var preview	= (function(dest, e, file) {
 	var img		= new Image();
 	var fig	= $new( 'figure' );
 	if ( uPreview[file.type] !== true ) {
-		img.src		= '/templates/admin/file.png';
+		img.src		= getRoot() + 'file.png';
 	} else {
 		img.src		= e.target.result;
 	}
