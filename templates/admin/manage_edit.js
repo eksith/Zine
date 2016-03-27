@@ -1,5 +1,5 @@
 $boot(function() {
-	var fdata = new FormData();
+	var fdata	= new FormData();
 	
 	datetime('#pubdate');
 	autosize('#body');
