@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Zine
  */
@@ -288,7 +289,11 @@ function getPost( $conf ) {
 /**
  * Storage root path for all posts
  */
-function postRoot() {
+function postRoot( $drafts = false ) {
+	if ( $drafts ) {
+		return rtrim( STORE, \DIRECTORY_SEPARATOR ) . 
+			\DIRECTORY_SEPARATOR . 'drafts';
+	}
 	return rtrim( STORE, \DIRECTORY_SEPARATOR ) . 
 		\DIRECTORY_SEPARATOR . 'posts';
 }
@@ -299,7 +304,7 @@ function postRoot() {
  */
 function savePost( $path, $data, $draft = false ) {
 	$paths	= explode( '/', $path );
-	$root	= postRoot();
+	$root	= postRoot( $draft );
 	
 	foreach( $paths as $frag ) {
 		$root .= \DIRECTORY_SEPARATOR . $frag;
@@ -388,9 +393,9 @@ function dupRename( $up ) {
 /**
  * Move uploaded files to the same directory as the post
  */
-function saveUploads( $path ) {
+function saveUploads( $path, $draft = false ) {
 	$s	= \DIRECTORY_SEPARATOR;
-	$root	= postRoot();
+	$root	= postRoot( $draft );
 	$files	= parseUploads();
 	$store	= $root . $s . $path . $s;
 	
@@ -438,7 +443,7 @@ function sortByModified( $post, $drafts = false ) {
 	} else {
 		$f = strlen( POST_FILE ) + 1; 
 	}
-	$i = strlen( postRoot() ) + $f;
+	$i = strlen( postRoot( $drafts ) ) + $f;
 	
 	usort( $post, function( $a, $b ) use ( $i ) {
 		$c = strncmp( $a, $b, $i );
@@ -474,8 +479,12 @@ function searchDays( $args ) {
 		$f		= 
 			'*'. $s .'*'. $s .'*'. $s . $p;
 	}
+	
+	$drafts	= ( fileByMode( $args ) == DRAFT_FILE ) ? 
+			true : false;
+	
 	$params	= array_reverse( $params );
-	$search	= postRoot() . $s . implode( $s, $params ) . $s;
+	$search	= postRoot( $drafts ) . $s . implode( $s, $params ) . $s;
 	$posts	= glob( $search . $f, \GLOB_NOSORT );
 	$drafts	= ( $p == POST_FILE ) ? true : false;
 	
@@ -629,7 +638,12 @@ function indexPaginate( $args, $conf, $mode = 'index' ) {
 	$offset		= ( $page - 1 ) * $conf['post_limit'];
 	$paths		= array();
 	while( empty( $paths ) && $year > YEAR_END ) {
-		$paths	= searchDays( array( 'year' => $year ) );
+		$paths	= searchDays( 
+			array( 
+				'year'	=> $year,
+				'mode'	=> $mode
+			) 
+		);
 		$year--;
 	}
 	
@@ -656,22 +670,27 @@ function fileByMode( $args ) {
 /**
  * Find the post data file of a specific post by date and slug
  */
-function exactPost( $args ) {
+function exactPost( $args, $drafts = false ) {
 	$s	= \DIRECTORY_SEPARATOR;
 	$path	= array(
 		$args['year'], $args['month'], 
 		$args['day'], $args['slug']
 	);
-	$p	= fileByMode( $args );
 	
-	return postRoot() . $s . implode( $s, $path ) . 
+	if ( $drafts ) {
+		$p = DRAFT_FILE;
+	} else {
+		$p = fileByMode( $args );
+	}
+	
+	return postRoot( $drafts ) . $s . implode( $s, $path ) . 
 		$s . $p;
 }
 
 /**
  * Load a content page and return decoded JSON
  */
-function loadPost( $file ) {
+function loadPost( $file, $darfts = false ) {
 	if ( !file_exists( $file ) ) {
 		return null;
 	}
@@ -693,9 +712,9 @@ function loadPost( $file ) {
 /**
  * Find a post if it exists. Returns JSON decoded post data
  */
-function findPost( $args ) {
-	$search = exactPost( $args );
-	return loadPost( $search );
+function findPost( $args, $drafts = false ) {
+	$search = exactPost( $args, $drafts );
+	return loadPost( $search, $drafts  );
 }
 
 /**
@@ -1476,7 +1495,11 @@ function pageLink( $text, $url, $tool = '' ) {
  * Format each post into the post template
  */
 function parsePosts( $posts, $paths, $args, $conf ) {
-	$ptpl	= loadTpl( $conf, 'tpl_postfrag.html' );
+	if ( isset( $args['mode'] ) ) {
+		$ptpl	= loadTpl( $conf, 'tpl_postfrag.html', true );
+	} else {
+		$ptpl	= loadTpl( $conf, 'tpl_postfrag.html' );
+	}
 	$parsed	= '';
 	$i	= 0;
 	
@@ -1490,6 +1513,8 @@ function parsePosts( $posts, $paths, $args, $conf ) {
 		array(
 			'post_title'	=> $post['title'],
 			'post_body'	=> $post['body'],
+			'post_summary'	=> $post['summary'],
+			'post_id'	=> base64_encode( $ppath ),
 			'post_date'	=> $pdate,
 			'post_path'	=> $ppath
 		);
@@ -1547,8 +1572,9 @@ function indexPages( $args, $conf, $paths ) {
  * Extract the date and slug from the full post path
  */
 function dateAndSlug( $path, $args ) {
-	$i = strlen( postRoot() ) + 1;
 	$p = fileByMode( $args );
+	$d = ( $p == DRAFT_FILE ) ? true : false;
+	$i = strlen( postRoot( $d ) ) + 1;
 	# Remove the root and '/POST_FILE'
 	$f = strlen( $p );
 	return substr( substr( $path, 0, -$f ), $i );
@@ -1940,17 +1966,19 @@ function route( $routes ) {
 /**
  * Notification page used for logins, logouts, error pages etc...
  */
-function message( $msg, $scrub = false ) {
+function message( $msg, $scrub = false, $admin = false ) {
 	$conf	= loadConf();
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
 		'tagline'	=> $conf['tagline'],
-		'theme'		=> getTheme( $conf ),
-		'page_body'	=> $msg
+		'theme'		=> $admin ? 
+			getAdminTheme( $conf ) : getTheme( $conf ),
+		'page_body'	=> $msg,
+		'copyright'	=> $conf['copyright']
 	);
 	
-	$tpl	= loadTpl( $conf, 'tpl_message.html' );
+	$tpl	= loadTpl( $conf, 'tpl_message.html', $admin );
 	$html	= render( $vars, $tpl );
 	if ( $scrub ) {
 		endf( $html );
@@ -2150,9 +2178,9 @@ function() {
  */
 $editing	= 
 function( $args, $conf ) {
-	$post	= findPost( $args );
+	$post	= findPost( $args, true );
 	if ( empty( $post ) ) {
-		message( MSG_NOTFOUND );
+		message( MSG_NOTFOUND, false, true );
 	}
 	
 	$edit	= base64_encode( 
@@ -2190,13 +2218,57 @@ function( $args, $conf ) {
 
 $drafts		= 
 function( $args, $conf ) {
-	die( 'Drafts TBA' );
+	$paths	= indexPaginate( $args, $conf, 'drafts' );
+	$posts	= loadPosts( $paths );
+	if ( empty( $posts ) ) {
+		message( MSG_NOPOSTS, false, true );
+	}
+	
+	$parsed	= parsePosts( $posts, $paths, $args, $conf );
+	$npa	= indexPages( $args, $conf, $paths );
+	$vars	= 
+	array(
+		'page_title'	=> $conf['title'],
+		'tagline'	=> $conf['tagline'],
+		'page_body'	=> $parsed,
+		'theme'		=> getAdminTheme( $conf ),
+		
+		'navpages'	=> $npa,
+		'copyright'	=> $conf['copyright']
+	);
+	
+	$tpl	= loadTpl( $conf, 'tpl_drafts.html', true );
+	echo render( $vars, $tpl );
+	
+	die();
 };
 
 
 $pending	= 
 function( $args, $conf ) {
-	die( 'Pending TBA' );
+	$paths	= indexPaginate( $args, $conf, 'pending' );
+	$posts	= loadPosts( $paths );
+	if ( empty( $posts ) ) {
+		message( MSG_NOPOSTS, false, true );
+	}
+	
+	$parsed	= parsePosts( $posts, $paths, $args, $conf );
+	$npa	= indexPages( $args, $conf, $paths );
+	$vars	= 
+	array(
+		'page_title'	=> $conf['title'],
+		'tagline'	=> $conf['tagline'],
+		'page_body'	=> $parsed,
+		'theme'		=> getAdminTheme( $conf ),
+		
+		'navpages'	=> $npa,
+		'copyright'	=> $conf['copyright']
+	);
+	
+	$tpl	= loadTpl( $conf, 'tpl_pending.html', true );
+	echo render( $vars, $tpl );
+	
+	die();
 };
 
 
@@ -2205,11 +2277,11 @@ function( $args, $conf ) {
  */
 $mode		=
 function() use ( $editing, $drafts, $pending ) {
+	$args	= func_get_args()[0];
 	$conf	= loadConf();
 	\date_default_timezone_set( $conf['timezone'] );
 	
 	authority();
-	$args	= func_get_args()[0];
 	
 	switch( $args['mode'] ) {
 		case 'edit':
@@ -2339,11 +2411,11 @@ function() {
 	}
 	$data	= getSettings( $conf );
 	if ( empty( $data ) ) {
-		message( MSG_NOSETTS, true );
+		endf( 'No settings found' );
 	}
 	$conf	= array_merge( $conf, $data );
 	saveConf( $conf );
-	message( MSG_SETSAVE );
+	message( MSG_SETSAVE, false, true );
 };
 
 /**
@@ -2368,7 +2440,7 @@ function() {
 	if ( verifyPassword( $data['oldpassword'], $stored ) ) {
 		$conf['password'] = password( $data['newpassword'] );
 		saveConf( $conf );
-		message( MSG_PASSCH );
+		message( MSG_PASSCH, false, true );
 		
 	} else {
 		message( 'Passwords did not match', true );
