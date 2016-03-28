@@ -218,6 +218,9 @@ function getPost( $conf ) {
 		message( MSG_BODYM );
 	}
 	
+	$draft			= isset( $data['draft'] ) ? 
+					true : false;
+	
 	if ( !empty( $data['delpost'] ) ) {
 		if ( empty( $data['edit'] ) ) {
 			return null;
@@ -225,7 +228,7 @@ function getPost( $conf ) {
 		
 		$edit	= editTime( $data['edit'] );
 		$path	= checkEdit( $edit );
-		deletePost( $path );
+		deletePost( $path, $draft );
 	}
 	
 	# Post content exactly as entered by the user
@@ -277,9 +280,6 @@ function getPost( $conf ) {
 		'slug'		=> $data['slug'],
 		'pubdate'	=> $pub
 	);
-	
-	$draft			= isset( $data['draft'] ) ? 
-					true : false;
 	
 	return array( $path, $params, $draft );
 }
@@ -417,11 +417,32 @@ function saveUploads( $path, $draft = false ) {
 }
 
 /**
+ * Move files uploaded to the draft path to their published location
+ */
+function moveDraft( $path ) {
+	$s	= \DIRECTORY_SEPARATOR;
+	$root	= postRoot( false );
+	$droot	= postRoot( true );
+	$store	= $root . $s . $path . $s;
+	$dstore	= $droot . $s . $path . $s;
+	
+	$dfiles	= array_filter( glob( $dstore . '*' ), 'is_file' );
+	foreach( $dfiles as $file ) {
+		$info = pathinfo( $file );
+		if ( $info['basename'] != 'draft.post' ) {
+			rename( $file, $store . $info['basename'] );
+		} else {
+			rename( $file, $store . 'blog.post' );
+		}
+	}
+}
+
+/**
  * Remove a post and any attachments permanently
  */
-function deletePost( $path ) {
+function deletePost( $path, $draft = false ) {
 	$s	= \DIRECTORY_SEPARATOR;
-	$root	= postRoot();
+	$root	= postRoot( $draft );
 	$dir	= $root . $s . $path;
 	
 	$files	= array_filter( glob( $dir . $s . '*' ), 'is_file' );
@@ -622,21 +643,68 @@ function archivePaginate( $args, $conf ) {
 }
 
 /**
+ * Ensure date arguments don't exceed today
+ */
+function enforceDates( $args ) {
+	$year		= isset( $args['year'] ) ? 
+				( int ) $args['year'] : ( int ) date( 'Y' );
+	
+	$month		= isset( $args['month'] ) ? 
+				( int ) $args['month'] : ( int ) date( 'n' );
+	
+	$day		= isset( $args['day'] ) ? 
+				( int ) $args['day'] : ( int ) date( 'j' );
+	
+	$m		= ( int ) date( 'n' );
+	$y		= ( int ) date( 'Y' );
+	$d		= ( int ) date( 'j' );
+	
+	$args['year']	= ( $year > $y || $year < YEAR_END ) ? 
+				 $y : $year;
+	
+	if ( $args['year'] == $year ) {
+		$args['month']	= ( $month > $m || $month <= 0 ) ? 
+					$m : $month;
+		
+	} else {
+		$args['month']	= ( $month <= 0 || $month > 12 ) ? 
+					1 : $month;
+	}
+	
+	$days	= cal_days_in_month( \CAL_GREGORIAN, $month, $year );
+	$day	= ( $day <= 0 || $day > $days ) ? 1 : $day;
+			
+	if ( $year == $y && $month == $m ) {
+		if ( $day > $d ) {
+			$day = $d;
+		}
+	}
+	
+	$args['day']	= $day;
+	
+	return $args;
+}
+
+/**
  * Paginate the front page index listing
  */
 function indexPaginate( $args, $conf, $mode = 'index' ) {
 	switch( $mode ) {
+		case 'drafts':
 		case 'pending':
 			$year	= ( ( int ) date( 'Y' ) ) + 10;
 			break;
 			
 		default:
-			$year	= ( int ) date( 'Y' );
+			$args = enforceDates( $args );
+			$year = $args['year'];
 	}
+	
 	$page		= isset( $args['page'] ) ? $args['page'] : 1;
 	
 	$offset		= ( $page - 1 ) * $conf['post_limit'];
 	$paths		= array();
+	
 	while( empty( $paths ) && $year > YEAR_END ) {
 		$paths	= searchDays( 
 			array( 
@@ -1575,6 +1643,7 @@ function dateAndSlug( $path, $args ) {
 	$p = fileByMode( $args );
 	$d = ( $p == DRAFT_FILE ) ? true : false;
 	$i = strlen( postRoot( $d ) ) + 1;
+	
 	# Remove the root and '/POST_FILE'
 	$f = strlen( $p );
 	return substr( substr( $path, 0, -$f ), $i );
@@ -1676,7 +1745,35 @@ function equals( $str1, $str2 ) {
 	}
 	return 
 	substr_count( $str1 ^ $str2, "\0" ) * 2 === 
-		strlen( $str1 . $str2 );
+			strlen( $str1 . $str2 );
+}
+
+/**
+ * For PHP versions less than 5.5, hash_pbkdf2 workaround
+ */
+function pbkdf2( $algo, $txt, $salt, $rounds, $kl ) {
+	if ( exists( 'hash_pbkdf2' ) ) {
+		return 
+		\hash_pbkdf2( $algo, $txt, $salt, $rounds, $kl );
+	}
+	
+	$hl	= strlen( $hash( $algo, '', true ) );
+	$bc	= ceil( $kl / $hl );
+	$hash	= '';
+	
+	for ( $i = 0; $i < $bc; $i++ ) {
+		$last = $salt . pack( 'N', $i );
+		$last = $xor = 	
+			\hash_hmac( $algo, $last, $txt, true );
+		
+		for ( $j = 1; $j < $rounds; $j++ ) {
+			$xor ^= 
+			\hash_hmac( $algo, $last, $txt, true );
+		}
+		$out .= $xor;
+	}
+	
+	return base64_encode( mb_substr( $hash, 0, $kl ) );
 }
 
 /**
@@ -1690,7 +1787,7 @@ function pbk(
 	$kl	= 128
 ) {
 	$salt	= empty( $salt ) ? bin2hex( bytes( 16 ) ) : $salt;
-	$hash	= \hash_pbkdf2( $algo, $txt, $salt, $rounds, $kl );
+	$hash	= pbkdf2( $algo, $txt, $salt, $rounds, $kl );
 	$out	= array(
 			$algo, $salt, $rounds, $kl, $hash
 		);
@@ -2135,11 +2232,21 @@ function() {
 		message( MSG_FORMEXP, true );
 	}
 	
-	$post	= savePost( $data[0], $data[1], $data[2] );
+	# Save as a draft first
+	$post	= savePost( $data[0], $data[1], true );
 	if ( $conf['allow_uploads'] ) {
-		saveUploads( $data[0] );
+		saveUploads( $data[0], true );
 	}
-	header( 'Location: /read' . $post );
+	
+	# If this is an actual draft, return to edit view
+	if ( $draft[2] ) {
+		header( 'Location: /edit' . $post );
+	} else {
+		# If this is a publishing, move the draft contents
+		moveDraft( $data[0] );
+		header( 'Location: /read' . $post );
+	}
+	
 	die();
 };
 
@@ -2178,9 +2285,12 @@ function() {
  */
 $editing	= 
 function( $args, $conf ) {
-	$post	= findPost( $args, true );
+	$post	= findPost( $args );
 	if ( empty( $post ) ) {
-		message( MSG_NOTFOUND, false, true );
+		$post = findPost( $args, true );
+		if ( empty( $post ) ) {
+			message( MSG_NOTFOUND, false, true );
+		}
 	}
 	
 	$edit	= base64_encode( 
@@ -2342,7 +2452,7 @@ function() {
 			$conf['password'] = password( $data );
 			saveConf( $conf );
 		}
-		message( MSG_LOGINGG );
+		message( MSG_LOGINGG, false, true );
 		
 	} else {
 		message( MSG_LOGININV, true );
