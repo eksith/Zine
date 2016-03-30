@@ -1517,7 +1517,14 @@ function markdown( $html, $prefix = '' ) {
 		'/<\/(p)><\/(blockquote)>\s?<\2>/'	=>
 		function( $m ) { return ''; },
 		
-		# Code
+		# Block of code
+		'/\n`{3,}(.*)\n`{3,}/'			=>
+		function( $m ) { 
+			$t = trim( $m[1] );
+			return sprintf( '\n<pre><code>%s</code></pre>\n', $t );
+		},
+		
+		# Inline code
 		'/`(.*)`/'				=>
 		function( $m ) {
 			$t = trim( $m[1] );
@@ -1528,7 +1535,8 @@ function markdown( $html, $prefix = '' ) {
 		'/\n-{5,}/'				=>
 		function( $m ) { return '<hr />'; },
 		
-		'/\n([^\n(\<\/ul|ol|li|h|blockquote)?]+)\n/'		=>
+		# Fix paragraphs after block elements
+		'/\n([^\n(\<\/ul|ol|li|h|blockquote|code|pre)?]+)\n/'		=>
 		function( $m ) {
 			return '</p><p>';
 		}
