@@ -1770,7 +1770,7 @@ function pbkdf2( $algo, $txt, $salt, $rounds, $kl ) {
 			$xor ^= 
 			\hash_hmac( $algo, $last, $txt, true );
 		}
-		$out .= $xor;
+		$hash .= $xor;
 	}
 	
 	return base64_encode( mb_substr( $hash, 0, $kl ) );
