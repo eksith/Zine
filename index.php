@@ -1712,11 +1712,19 @@ function getAttach( $args, $conf ) {
 		die();
 	}
 	
+	$mode	= array_shift( $args );
+	$draft	= false;
+	if ( $mode !== 'read' ) {
+		authority();
+		$draft = true;
+	}
+	
+	
 	sessionCheck();
 	\session_write_close();
 	
 	$s	= \DIRECTORY_SEPARATOR;
-	$root	= postRoot();
+	$root	= postRoot( $draft );
 	$path	= $root . $s . implode( $s, $args );
 	
 	if ( false !== strpos( $args['file'], '.post' ) ) {
@@ -2584,7 +2592,7 @@ $routes = array(
 	array( 'get', ':year/:month/:day/page:page', $archive ),
 	
 	array( 'get', 'read/:year/:month/:day/:slug', $reading ), 
-	array( 'get', 'read/:year/:month/:day/:slug/:file', $download ), 
+	array( 'get', ':mode/:year/:month/:day/:slug/:file', $download ), 
 	array( 'get', ':mode/:year/:month/:day/:slug', $mode ),
 	array( 'post', 'edit', $save ),
 	
