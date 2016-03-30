@@ -2247,7 +2247,7 @@ function() {
 	}
 	
 	# If this is an actual draft, return to edit view
-	if ( $draft[2] ) {
+	if ( $data[2] ) {
 		header( 'Location: /edit' . $post );
 	} else {
 		# If this is a publishing, move the draft contents
