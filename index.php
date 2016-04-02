@@ -30,7 +30,6 @@ define( 'SUMMARY_LEN',	200 );
 # Session refresh timeout
 define( 'SESSION_EXP',	300 );
 
-
 /**
  * Common messages
  */
@@ -79,7 +78,440 @@ define( 'RX_XSS4',	'/(\\~\/|\.\.|\\\\|\-\-)/sm' );
  *          END EDITING           *
  **********************************/
 
- 
+
+/**
+ * Compatibility shims for older PHP versions
+ */
+
+/**
+ * Check if a function exists ( Suhosin compatible )
+ * 
+ * @param string $func Function name
+ * @return boolean true If the function exists
+ */
+function missing( $func ) {
+	if ( \extension_loaded( 'suhosin' ) ) {
+		$exts = ini_get( 'suhosin.executor.func.blacklist' );
+		if ( !empty( $exts ) ) {
+			$blocked	= explode( ',', strtolower( $exts ) );
+			$blocked	= array_map( 'trim', $blocked );
+			$search		= strtolower( $func );
+			
+			return ( 
+				false	== \function_exists( $func ) && 
+				true	== array_search( $search, $blocked ) 
+			);
+		}
+	}
+	
+	return !\function_exists( $func );
+}
+
+
+if ( missing( 'preg_replace_callback_array' ) ) {
+	function preg_replace_callback_array( 
+		$filters, 
+		$html, 
+		$limit = -1  
+	) {
+		$i = $limit;
+		foreach( $filters as $regex => $handler ) {
+			if ( $limit != -1 && $i <= 0 ) {
+				break;
+			}
+			$html =	preg_replace_callback( 
+				$regex, $handler, $html
+			);
+			
+			$i--;
+		}
+		
+		return $html;
+	}
+}
+
+/**
+ * Compare two strings in constant time
+ */
+if ( missing( 'hash_equals' ) ) {
+	function hash_equals( $str1, $str2 ) { 
+		return 
+		substr_count( $str1 ^ $str2, "\0" ) * 2 === 
+			strlen( $str1 . $str2 );
+	}
+}
+
+/**
+ * Key derivation function
+ */
+if ( missing( 'hash_pbkdf2' ) ) {
+	function hash_pbkdf2( 
+		$algo, 
+		$txt, 
+		$salt, 
+		$rounds, 
+		$kl		= 0,
+		$raw		= false
+	) {
+		$hl	= strlen( $hash( $algo, '', true ) );
+		
+		$kl	= empty( $kl ) ? 
+				( $raw ? $hl : $hl * 2 ) : $kl;
+		
+		$bc	= ceil( $kl / $hl );
+		$hash	= '';
+		
+		for ( $i = 0; $i < $bc; $i++ ) {
+			$last = $salt . pack( 'N', $i );
+			$last = $xor = 	
+				\hash_hmac( $algo, $last, $txt, true );
+			
+			for ( $j = 1; $j < $rounds; $j++ ) {
+				$xor ^= 
+				\hash_hmac( $algo, $last, $txt, true );
+			}
+			$hash .= $xor;
+		}
+		
+		$hash	= mb_substr( $hash, 0, $kl );
+		
+		return $raw ? $hash : bin2hex( $hash );
+	}
+}
+
+/**
+ * Generate cryptographically secure pseudorandom bytes
+ */
+if ( missing( 'random_bytes' ) ) {
+	function random_bytes( $len ) {
+		$bytes = '';
+		
+		if ( missing ( 'openssl_random_pseudo_bytes' ) ) {
+			if ( missing( 'mcrypt_create_iv' ) ) {
+				# Last chance
+				$src = '/dev/urandom';
+				if ( is_readable( $src ) ) {
+					$bytes = 
+					file_get_contents( 
+						$src, false, null, 
+						-1, $len 
+					);
+				}
+			} else {
+				$bytes = 
+				\mcrypt_create_iv( 
+					$len, \MCRYPT_DEV_URANDOM 
+				);
+			}
+		} else {
+			$bytes = \openssl_random_pseudo_bytes( $len );
+		}
+		
+		if ( empty( $bytes ) ) {
+			die( 'Unable to find random source' );
+		}
+		
+		return $bytes;
+	}
+}
+
+
+
+/* User authentication */
+
+/**
+ * Hash password securely and into a storage safe format
+ * 
+ * @link https://paragonie.com/blog/2015/04/secure-authentication-php-with-long-term-persistence
+ */
+function password( $password ) {
+	return base64_encode(
+	\password_hash(
+		base64_encode(
+			hash( 'sha384', $password, true )
+		),
+		\PASSWORD_DEFAULT
+	) );
+}
+
+/**
+ * Verify user provided password against stored one
+ */
+function verifyPassword( $password, $stored ) {
+	$stored = base64_decode( $stored, true );
+	if ( false === $stored ) {
+		return false;
+	}
+	
+	return 
+	\password_verify(
+		base64_encode( 
+			hash( 'sha384', $password, true )
+		),
+		$stored
+	);
+}
+
+/**
+ * Checks if the current password needs to be rehashed
+ */
+function passNeedsRehash( $stored ) {
+	$stored = base64_decode( $stored, true );
+	if ( false === $stored ) {
+		return false;
+	}
+	
+	return 
+	\password_needs_rehash( $stored, \PASSWORD_DEFAULT );
+}
+
+
+
+/* Security */
+
+/**
+ * Key derivation function
+ */
+function pbk( 
+	$txt, 
+	$salt	= '', 
+	$algo	= 'tiger160,4',
+	$rounds	= 1000, 
+	$kl	= 128
+) {
+	$salt	= empty( $salt ) ? 
+			bin2hex( \random_bytes( 16 ) ) : $salt;
+	$hash	= \hash_pbkdf2( $algo, $txt, $salt, $rounds, $kl );
+	$out	= array(
+			$algo, $salt, $rounds, $kl, $hash
+		);
+	return base64_encode( implode( '$', $out ) );
+}
+
+/**
+ * Verify derived key against plain text
+ */
+function verifyPbk( $txt, $hash ) {
+	# Empty or excessively large hash? Reject
+	if ( empty( $hash ) || mb_strlen( $hash, '8bit' ) > 600 ) {
+		return false;
+	}
+	
+	# Invalid base64 encoding
+	$key	= base64_decode( $hash, true );
+	if ( false === $key ) {
+		return false;
+	}
+	
+	# Check PBK components
+	$key	= cleanPbk( $key );
+	$k	= explode( '$', $key );
+	if ( empty( $k ) || empty( $txt ) ) {
+		return false;
+	}
+	if ( count( $k ) != 5 ) {
+		return false;
+	}
+	if ( !in_array( $k[0], \hash_algos() , true ) ) {
+		return false;
+	}
+	
+	$pbk	= \hash_pbkdf2( $k[0], $txt,$k[1], 
+			( int ) $k[2], ( int ) $k[3] );
+	
+	return \hash_equals( $k[4],  $pbk );
+}
+
+/**
+ * Scrub the derived key of any invalid characters
+ */
+function cleanPbk( $hash ) {
+	return preg_replace( '/[^a-f0-9\$]+$/i', '', $hash );
+}
+
+/**
+ * Session owner and staleness marker
+ * 
+ * @link https://paragonie.com/blog/2015/04/fast-track-safe-and-secure-php-sessions
+ */
+function sessionCanary( $visit = null ) {
+	$_SESSION['canary'] = 
+	array(
+		'exp'	=> time() + SESSION_EXP,
+		'visit'	=> empty( $visit ) ? 
+				bin2hex( \random_bytes( 12 ) ) : $visit
+	);
+}
+
+/**
+ * Check session staleness
+ */
+function sessionCheck( $reset = false ) {
+	session( $reset );
+	
+	if ( empty( $_SESSION['canary'] ) ) {
+		sessionCanary();
+		return;
+	}
+	
+	if ( time() > ( int ) $_SESSION['canary']['exp'] ) {
+		$visit = $_SESSION['canary']['visit'];
+		\session_regenerate_id( true );
+		sessionCanary( $visit );
+	}
+}
+
+/**
+ * Scrub globals
+ */
+function cleanGlobals() {
+	if ( !isset( $GLOBALS ) ) {
+		return;
+	}
+	foreach ( $GLOBALS as $k => $v ) {
+		if ( 0 != strcasecmp( $k, 'GLOBALS' ) ) {
+			unset( $GLOBALS[$k] );
+		}
+	}
+}
+
+/**
+ * End current session activity
+ */
+function cleanSession() {
+	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
+		\session_unset();
+		\session_destroy();
+		\session_write_close();
+	}
+}
+
+/**
+ * Initiate a session if it doesn't already exist
+ * Optionally reset and destroy session data
+ */
+function session( $reset = false ) {
+	if ( 
+		\session_status() === \PHP_SESSION_ACTIVE && 
+		!$reset 
+	) {
+		return;
+	}
+	
+	if ( \session_status() != \PHP_SESSION_ACTIVE ) {
+		\session_name( 'is' );
+		\session_start();
+	}
+	if ( $reset ) {
+		\session_regenerate_id( true );
+		foreach ( array_keys( $_SESSION ) as $k ) {
+			unset( $_SESSION[$k] );
+		}
+	}
+}
+
+/**
+ * Process HTTP_* variables
+ */
+function httpHeaders() {
+	$val = array();
+	foreach ( $_SERVER as $k => $v ) {
+		if ( 0 === strncasecmp( $k, 'HTTP_', 5 ) ) {
+			$a = explode( '_' ,$k );
+			array_shift( $a );
+			array_walk( $a, function( &$r ) {
+				$r = ucfirst( strtolower( $r ) );
+			} );
+			$val[ implode( '-', $a ) ] = $v;
+		}
+	}
+	return $val;
+}
+
+/**
+ * Create current visitor's browser signature by sent headers
+ */
+function signature() {
+	$headers	= httpHeaders();
+	$skip		= 
+	array(
+		'Accept-Datetime',
+		'Accept-Encoding',
+		'Content-Length',
+		'Cache-Control',
+		'Content-Type',
+		'Content-Md5',
+		'Referer',
+		'Cookie',
+		'Expect',
+		'Date',
+		'TE'
+	);
+	
+	$search		= 
+	array_intersect_key( 
+		array_keys( $headers ), 
+		array_reverse( $skip ) 
+	);
+	
+	$match		= '';
+	foreach ( $headers as $k => $v ) {
+		$match .= $v[0];
+	}
+}
+
+/**
+ * Check authorization token
+ */
+function auth() {
+	if ( empty( $_SESSION['auth'] ) ) {
+		return false;
+	}
+	
+	$sig			= signature();
+	$visit			= $_SESSION['canary']['visit'];
+	
+	if ( verifyPbk( $sig . $visit, $_SESSION['auth'] ) ) {
+		return true;
+	}
+	
+	return false;
+}
+
+/**
+ * Set the authorization token ( after login confirmation )
+ */
+function setAuth() {
+	$sig			= signature();
+	$visit			= $_SESSION['canary']['visit'];
+	$_SESSION['auth']	= pbk( $sig . $visit );
+}
+
+/**
+ * Check authorization and refresh the session
+ */
+function authority() {
+	if ( auth() ) {
+		setAuth();
+		return;
+	}
+	
+	message( MSG_LOGIN, true );
+}
+
+/**
+ * Scrub all outputs and end the session
+ */
+function endf( $msg = '' ) {
+	cleanGlobals();
+	cleanSession();
+		
+	ob_start();
+	ob_end_clean();
+	die( $msg );
+}
+
+
 
 /* Post content formatting */
 
@@ -136,6 +568,14 @@ function smartTrim( $val, $max = 100 ) {
 }
 
 /**
+ * Format datetime into datetime-local input format
+ */
+function dateTimeFormat( $pub ) {
+	$t = ( int ) $pub;
+	return date( 'Y-m-d', $t ) . 'T' . date( 'H:i', $t );
+}
+
+/**
  * Create a URL based on the date and title
  * @example /2015/02/26/an-example-post
  */
@@ -159,1039 +599,9 @@ function fillTitle( $body ) {
 	return smartTrim( $title[0] );
 }
 
-/**
- * Verify post editing profile
- */
-function editTime( $edit ) {
-	if ( mb_strlen( $edit, '8bit' ) > 1000 ) {
-		message( MSG_INVALID, true );
-	}
-	
-	$data	= base64_decode( $edit, true );
-	
-	if ( false === $data ) {
-		message( MSG_INVALID, true );
-	}
-	if ( false === strpos( $data, '/' ) ) {
-		message( MSG_INVALID, true );
-	}
-	
-	return $data;
-}
-
-/**
- * Verify editing path contains all needed components
- */
-function checkEdit( $data ) {
-	$paths	= explode( '/', $data );
-	if ( count( $paths ) != 4 ) {
-		message( MSG_INVALID, true );
-	}
-	
-	return $data;
-}
-
-/**
- * Parse and filter user submitted post data
- */
-function getPost( $conf ) {
-	$filter = array(
-		'csrf'		=> \FILTER_SANITIZE_STRING,
-		'edit'		=> \FILTER_SANITIZE_STRING,
-		'title'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'pubdate'	=> \FILTER_SANITIZE_STRING,
-		'slug'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'summary'	=> \FILTER_UNSAFE_RAW,
-		'body'		=> \FILTER_UNSAFE_RAW,
-		'draft'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'delpost'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
-	);
-	
-	$data			= 
-	\filter_input_array( \INPUT_POST, $filter );
-	
-	if ( !validateCsrf( 'post', $data['csrf'] ) ) {
-		return null;
-	}
-	
-	if ( empty( $data['body'] ) ) {
-		message( MSG_BODYM );
-	}
-	
-	$draft			= isset( $data['draft'] ) ? 
-					true : false;
-	
-	if ( !empty( $data['delpost'] ) ) {
-		if ( empty( $data['edit'] ) ) {
-			return null;
-		}
-		
-		$edit	= editTime( $data['edit'] );
-		$path	= checkEdit( $edit );
-		deletePost( $path, $draft );
-	}
-	
-	# Post content exactly as entered by the user
-	$data['raw']		= $data['body'];
-	
-	
-	$data['slug']		= 
-		slugify( $data['title'], $data['slug'] );
-		
-	$pub			= 
-		empty( $data['pubdate'] ) ?
-			time() : strtotime( $data['pubdate'] . ' UTC' );
-	
-	if ( empty( $data['edit'] ) ) {
-		$path	= datePath( $data['slug'], $pub );
-	} else {
-		$edit	= editTime( $data['edit'] );
-		$path	= checkEdit( $edit );
-	}
-	
-	# Uploads view path
-	$uppath			= '/read/' . $path . '/';
-	
-	$data['body']		= 
-		clean( $data['body'], $conf['tags'], true, $uppath );
-	if ( empty( $data['body'] ) ) {
-		message( MSG_BODYM );
-	}
-	
-	
-	$data['title']		= 
-		empty( $data['title'] ) ? 
-			fillTitle( $data['body'] ) : $data['title'];
-	
-	$data['summary']	= 
-		empty( $data['summary'] ) ? 
-			smartTrim( strip_tags( $data['body'] ), SUMMARY_LEN ) : 
-			strip_tags( 
-				clean( $data['summary'], 
-					$conf['tags'], true, $uppath ) 
-			);
-	
-	$params			= 
-	array(
-		'title'		=> $data['title'],
-		'body'		=> $data['body'],
-		'summary'	=> $data['summary'],
-		'raw'		=> $data['raw'],
-		'slug'		=> $data['slug'],
-		'pubdate'	=> $pub
-	);
-	
-	return array( $path, $params, $draft );
-}
-
-/* Post storage and pagination */
-
-/**
- * Storage root path for all posts
- */
-function postRoot( $drafts = false ) {
-	if ( $drafts ) {
-		return rtrim( STORE, \DIRECTORY_SEPARATOR ) . 
-			\DIRECTORY_SEPARATOR . 'drafts';
-	}
-	return rtrim( STORE, \DIRECTORY_SEPARATOR ) . 
-		\DIRECTORY_SEPARATOR . 'posts';
-}
-
-/**
- * Save a post in its specified path directory
- * Replaces an existing post in the same location
- */
-function savePost( $path, $data, $draft = false ) {
-	$paths	= explode( '/', $path );
-	$root	= postRoot( $draft );
-	
-	foreach( $paths as $frag ) {
-		$root .= \DIRECTORY_SEPARATOR . $frag;
-		if ( is_dir( $root ) ) {
-			continue;
-		}
-		
-		mkdir( $root, 0600 );
-	}
-	$p	= $draft ? DRAFT_FILE : POST_FILE;
-	$file	= $root . \DIRECTORY_SEPARATOR . $p;
-	
-	# Edit the post if it already exists
-	if ( file_exists( $file ) ) {
-		$edit	= loadPost( $file );
-		$data	= array_merge( $edit, $data );
-	}
-		
-	$post	= json_encode( $data, 
-			\JSON_HEX_QUOT | \JSON_HEX_TAG | 
-			\JSON_HEX_APOS | \JSON_PRETTY_PRINT );
-	
-	
-	file_put_contents( $file, $post );
-	return '/' . $path;
-}
-
-/** 
- * Return uploaded $_FILES array into a more sane format
- * 
- * https://secure.php.net/manual/en/features.file-upload.multiple.php
- */
-function parseUploads() {
-	$files = array();
-	
-	foreach( $_FILES as $name => $file ) {
-		if ( is_array($file['name']) ) {
-			foreach ( $file['name'] as $n => $f ) {
-				$files[$name][$n] = array();
-				
-				foreach( $file as $k => $v ) {
-					$files[$name][$n][$k] = 
-						$file[$k][$n];
-				}
-			}
-		} else {
-        		$files[$name][] = $file;
-		}
-	}
-        return $files;
-}
-
-/**
- * Filter upload file name into a safe format
- */
-function filterUpName( $name ) {
-	if ( empty( $name ) ) {
-		return '_';
-	}
-	
-	$name	= preg_replace('/[^\pL_\-\d\.\s]', ' ' );
-	return preg_replace( '/\s+/', '-', trim( $name ) );
-}
-
-/**
- * Rename file to prevent overwriting existing ones by 
- * appending _i where 'i' is incremented by 1 until no 
- * more files with the same name are found
- */
-function dupRename( $up ) {
-	$info	= pathinfo( $up );
-	$ext	= $info['extension'];
-	$name	= $info['filename'];
-	$dir	= $info['dirname'];
-	$file	= $up;
-	$i	= 0;
-	
-	while ( file_exists( $file ) ) {
-		$file = $dir . \DIRECTORY_SEPARATOR . 
-			$name . '_' . $i++ . '.' . $ext;
-	}
-	
-	return $file;
-}
-
-/**
- * Move uploaded files to the same directory as the post
- */
-function saveUploads( $path, $draft = false ) {
-	$s	= \DIRECTORY_SEPARATOR;
-	$root	= postRoot( $draft );
-	$files	= parseUploads();
-	$store	= $root . $s . $path . $s;
-	
-	foreach ( $files as $name ) {
-		foreach( $name as $file ) {
-			# If errors were found, skip
-			if ( $file['error'] != \UPLOAD_ERR_OK ) {
-				continue;
-			}
-			
-			$tn	= $file['tmp_name'];
-			$n	= filterUpName( $file['name'] );
-			
-			# Check for duplicates and rename 
-			$up	= dupRename( $store . $n );
-			\move_uploaded_file( $tn, $up );
-		}
-	}
-}
-
-/**
- * Move files uploaded to the draft path to their published location
- */
-function moveDraft( $path ) {
-	$s	= \DIRECTORY_SEPARATOR;
-	$root	= postRoot( false );
-	$droot	= postRoot( true );
-	$store	= $root . $s . $path . $s;
-	$dstore	= $droot . $s . $path . $s;
-	
-	$dfiles	= array_filter( glob( $dstore . '*' ), 'is_file' );
-	foreach( $dfiles as $file ) {
-		$info = pathinfo( $file );
-		if ( $info['basename'] != 'draft.post' ) {
-			rename( $file, $store . $info['basename'] );
-		} else {
-			rename( $file, $store . 'blog.post' );
-		}
-	}
-}
-
-/**
- * Remove a post and any attachments permanently
- */
-function deletePost( $path, $draft = false ) {
-	$s	= \DIRECTORY_SEPARATOR;
-	$root	= postRoot( $draft );
-	$dir	= $root . $s . $path;
-	
-	$files	= array_filter( glob( $dir . $s . '*' ), 'is_file' );
-	array_map( 'unlink', $files );
-	
-	if ( rmdir( $dir ) ) {
-		message( MSG_POSTDEL );
-	}
-	message( MSG_POSTNDEL );
-}
-
-/**
- * Sort returned file paths by last modified date
- */
-function sortByModified( $post, $drafts = false ) {
-	# Root path + the date - post slug
-	if ( $drafts ) {
-		$f = strlen( DRAFT_FILE ) + 1; 
-	} else {
-		$f = strlen( POST_FILE ) + 1; 
-	}
-	$i = strlen( postRoot( $drafts ) ) + $f;
-	
-	usort( $post, function( $a, $b ) use ( $i ) {
-		$c = strncmp( $a, $b, $i );
-		
-		# If the posts were created on the same day, 
-		# sort by created date (modified date on *nix)
-		return ( 0 === $c ) ? 
-			( filectime( $b ) - filectime( $a ) ) : 
-			( $c < 0 );
-	} );
-	
-	return $post;
-}
-
-/**
- * Search for posts in a day/month/year range
- */
-function searchDays( $args ) {
-	$s	= \DIRECTORY_SEPARATOR;
-	$p	= fileByMode( $args );
-	$params	= array();
-	
-	if ( isset( $args['day'] ) ) {
-		$params['day']	= $args['day'];
-		$f		= '*' . $s . $p;
-	}
-	if ( isset( $args['month'] ) ) {
-		$params['month']	= $args['month'];
-		$f		= '*' . $s . '*' . $s . $p;
-	}
-	if ( isset( $args['year'] ) ) {
-		$params['year']	= $args['year'];
-		$f		= 
-			'*'. $s .'*'. $s .'*'. $s . $p;
-	}
-	
-	$drafts	= ( fileByMode( $args ) == DRAFT_FILE ) ? 
-			true : false;
-	
-	$params	= array_reverse( $params );
-	$search	= postRoot( $drafts ) . $s . implode( $s, $params ) . $s;
-	$posts	= glob( $search . $f, \GLOB_NOSORT );
-	$drafts	= ( $p == POST_FILE ) ? true : false;
-	
-	return sortByModified( $posts, $drafts );
-}
-
-/**
- * Parse archive search request
- */
-function findArchive( $args ) {
-	if ( isset( $args['day'] ) ) {
-		$days = array(
-			'year'	=> $args['year'],
-			'month'	=> $args['month'],
-			'day'	=> $args['day'],
-		);
-	}
-	if ( isset( $args['month'] ) ) {
-		$days = array(
-			'year'	=> $args['year'],
-			'month'	=> $args['month']
-		);
-	}
-	if ( isset( $args['year'] ) ) {
-		$days = array( 'year'=> $args['year'] );
-	}
-	$days['mode']	= isset( $args['mode'] ) ?
-				$args['mode'] : null;
-	return searchDays( $days );
-}
-
-/**
- * Get posts that are closest to the current date path
- */
-function siblingPosts( $args ) {
-	$mode		= isset( $args['mode'] ) ?
-				$args['mode'] : null;
-	$s1		=  
-	searchDays( array( 
-		'year'	=> $args['year'], 
-		'month'	=> ( $args['month'] - 1 ),
-		'mode'	=> $mode
-	) );
-	$s2		=  
-	searchDays( array( 
-		'year'	=> $args['year'], 
-		'month'	=> $args['month'],
-		'mode'	=> $mode
-	) );
-	$s3		=  
-	searchDays( array( 
-		'year'	=> $args['year'], 
-		'month'	=> ( $args['month'] + 1 ),
-		'mode'	=> $mode
-	) );
-	$siblings	= array_merge( $s1, $s2, $s3 );
-	
-	if ( empty( $siblings ) ) {
-		$siblings = 
-		searchDays( array( 
-			'year'	=> $args['year'], 
-			'mode'	=> $mode 
-		) );
-	}
-	
-	if ( empty( $siblings ) ) {
-		if ( ( int ) $args['year'] < ( int ) date( 'Y' ) ) {
-			$siblings = 
-			searchDays( array( 
-				'year'	=> ( $args['year'] + 1 ), 
-				'mode'	=> $mode
-			) );
-		} else {
-			$siblings = 
-			searchDays( array( 
-				'year' 	=> ( $args['year'] - 1 ), 
-				'mode'	=> $mode
-			) );
-		}
-	}
-	
-	$drafts	= ( fileByMode( $args ) == DRAFT_FILE ) ? 
-			true : false;
-	return sortByModified( $siblings, $drafts );
-}
-
-/**
- * Get posts that are closest neighbors to the current
- */
-function nextPrev( $args ) {
-	$siblings	= siblingPosts( $args );
-	$current	= exactPost( $args );
-	
-	if ( !in_array( $current, $siblings ) ) {
-		return array();
-	}
-	$np		= array();
-	$k		= array_search( $current, $siblings );
-	
-	if ( $k > 0 ) {
-		$np[] = $siblings[$k - 1];
-	}
-	
-	if ( $k < count( $siblings ) - 1 ) {
-		$np[] = $siblings[$k + 1];
-	}
-	
-	return $np;
-}
-
-/**
- * Search all posts for a year starting with current
- * Keeps looking until posts are found or until the year 2000
- */
-function searchFrom( $year ) {
-	$paths		= array();
-	while( empty( $paths ) && $year > YEAR_END ) {
-		$paths	= searchDays( array( 'year' => $year ) );
-		$year--;
-	}
-	
-	return $paths;
-}
-
-/**
- * Paginate an archive index listing
- */
-function archivePaginate( $args, $conf ) {
-	$paths		= findArchive( $args );
-	$page		= isset( $args['page'] ) ? $args['page'] : 1;
-	$offset		= ( $page - 1 ) * $conf['post_limit'];
-	
-	return 
-	array_slice( $paths, $offset, $conf['post_limit'] );
-}
-
-/**
- * Ensure date arguments don't exceed today
- */
-function enforceDates( $args ) {
-	$year		= isset( $args['year'] ) ? 
-				( int ) $args['year'] : ( int ) date( 'Y' );
-	
-	$month		= isset( $args['month'] ) ? 
-				( int ) $args['month'] : ( int ) date( 'n' );
-	
-	$day		= isset( $args['day'] ) ? 
-				( int ) $args['day'] : ( int ) date( 'j' );
-	
-	$m		= ( int ) date( 'n' );
-	$y		= ( int ) date( 'Y' );
-	$d		= ( int ) date( 'j' );
-	
-	$args['year']	= ( $year > $y || $year < YEAR_END ) ? 
-				 $y : $year;
-	
-	if ( $args['year'] == $year ) {
-		$args['month']	= ( $month > $m || $month <= 0 ) ? 
-					$m : $month;
-		
-	} else {
-		$args['month']	= ( $month <= 0 || $month > 12 ) ? 
-					1 : $month;
-	}
-	
-	$days	= cal_days_in_month( \CAL_GREGORIAN, $month, $year );
-	$day	= ( $day <= 0 || $day > $days ) ? 1 : $day;
-			
-	if ( $year == $y && $month == $m ) {
-		if ( $day > $d ) {
-			$day = $d;
-		}
-	}
-	
-	$args['day']	= $day;
-	
-	return $args;
-}
-
-/**
- * Paginate the front page index listing
- */
-function indexPaginate( $args, $conf, $mode = 'index' ) {
-	switch( $mode ) {
-		case 'drafts':
-		case 'pending':
-			$year	= ( ( int ) date( 'Y' ) ) + 10;
-			break;
-			
-		default:
-			$args = enforceDates( $args );
-			$year = $args['year'];
-	}
-	
-	$page		= isset( $args['page'] ) ? $args['page'] : 1;
-	
-	$offset		= ( $page - 1 ) * $conf['post_limit'];
-	$paths		= array();
-	
-	while( empty( $paths ) && $year > YEAR_END ) {
-		$paths	= searchDays( 
-			array( 
-				'year'	=> $year,
-				'mode'	=> $mode
-			) 
-		);
-		$year--;
-	}
-	
-	return 
-	array_slice( $paths, $offset, $conf['post_limit'] );
-}
-
-/**
- * Select the file type post/draft etc... by mode
- */
-function fileByMode( $args ) {
-	if ( isset( $args['mode'] ) ) {
-		switch( $args['mode'] ) {
-			case 'drafts':
-				return DRAFT_FILE;
-				
-			default: 
-				return POST_FILE;
-		}
-	}
-	return POST_FILE;
-}
-
-/**
- * Find the post data file of a specific post by date and slug
- */
-function exactPost( $args, $drafts = false ) {
-	$s	= \DIRECTORY_SEPARATOR;
-	$path	= array(
-		$args['year'], $args['month'], 
-		$args['day'], $args['slug']
-	);
-	
-	if ( $drafts ) {
-		$p = DRAFT_FILE;
-	} else {
-		$p = fileByMode( $args );
-	}
-	
-	return postRoot( $drafts ) . $s . implode( $s, $path ) . 
-		$s . $p;
-}
-
-/**
- * Load a content page and return decoded JSON
- */
-function loadPost( $file, $darfts = false ) {
-	if ( !file_exists( $file ) ) {
-		return null;
-	}
-	
-	$data = file_get_contents( $file );
-	if ( false !== strpos( $data, '<?' ) ) {
-		endf( MSG_SSDETECT );
-	}
-	
-	$params	= json_decode( utf8_encode( $data ), true );
-	if ( empty( $params ) ) {
-		message( MSG_POSTDERR, true );
-	}
-	
-	return $params;
-}
-
-
-/**
- * Find a post if it exists. Returns JSON decoded post data
- */
-function findPost( $args, $drafts = false ) {
-	$search = exactPost( $args, $drafts );
-	return loadPost( $search, $drafts  );
-}
-
-/**
- * Load list of post paths, JSON decoded and returns an array
- */
-function loadPosts( $paths ) {
-	$posts	= array();
-	foreach ( $paths as $path ) {
-		$post	= loadPost( $path );
-		if ( !empty( $post ) ) {
-			$posts[] = $post;
-		}
-	}
-	
-	return $posts;
-}
-
-
-/* User authentication */
-
-/**
- * Parse and filter user submitted login data
- */
-function getLogin() {
-	$filter = array(
-		'csrf'		=> \FILTER_SANITIZE_STRING,
-		'password'	=> \FILTER_UNSAFE_RAW
-	);
-	
-	$data			= 
-	\filter_input_array( \INPUT_POST, $filter );
-	
-	if ( !validateCsrf( 'login', $data['csrf'] ) ) {
-		return null;
-	}
-	if ( empty( $data['password'] ) ) {
-		return null;
-	}
-	
-	return $data['password'];
-}
-
-/**
- * Password change form data
- */
-function getPass() {
-	$filter = array(
-		'csrf'		=> \FILTER_SANITIZE_STRING,
-		'oldpassword'	=> \FILTER_UNSAFE_RAW,
-		'newpassword'	=> \FILTER_UNSAFE_RAW
-	);
-	
-	$data			= 
-	\filter_input_array( \INPUT_POST, $filter );
-	
-	if ( !validateCsrf( 'changePass', $data['csrf'] ) ) {
-		return null;
-	}
-	
-	if ( 
-		empty( $data['oldpassword'] ) || 
-		empty( $data['newpassword'] ) 
-	) {
-		return null;
-	}
-	
-	return array(
-		'oldpassword'	=> $data['oldpassword'],
-		'newpassword'	=> $data['newpassword']
-	);
-}
-
-/**
- * Hash password securely and into a storage safe format
- * 
- * @link https://paragonie.com/blog/2015/04/secure-authentication-php-with-long-term-persistence
- */
-function password( $password ) {
-	return base64_encode(
-	\password_hash(
-		base64_encode(
-			hash( 'sha384', $password, true )
-		),
-		\PASSWORD_DEFAULT
-	) );
-}
-
-/**
- * Verify user provided password against stored one
- */
-function verifyPassword( $password, $stored ) {
-	$stored = base64_decode( $stored, true );
-	if ( false === $stored ) {
-		return false;
-	}
-	
-	return 
-	\password_verify(
-		base64_encode( 
-			hash( 'sha384', $password, true )
-		),
-		$stored
-	);
-}
-
-/**
- * Checks if the current password needs to be rehashed
- */
-function passNeedsRehash( $stored ) {
-	$stored = base64_decode( $stored, true );
-	if ( false === $stored ) {
-		return false;
-	}
-	
-	return 
-	\password_needs_rehash( $stored, \PASSWORD_DEFAULT );
-}
-
-/**
- * Check authorization and refresh the session
- */
-function authority() {
-	if ( auth() ) {
-		setAuth();
-		return;
-	}
-	
-	message( MSG_LOGIN );
-}
-
-/**
- * Check authorization token
- */
-function auth() {
-	sessionCheck();
-	if ( empty( $_SESSION['auth'] ) ) {
-		return false;
-	}
-	
-	$sig			= signature();
-	$visit			= $_SESSION['canary']['visit'];
-	
-	if ( verifyPbk( $sig . $visit, $_SESSION['auth'] ) ) {
-		return true;
-	}
-	
-	return false;
-}
-
-/**
- * Set the authorization token ( after login confirmation )
- */
-function setAuth() {
-	sessionCheck();
-	$sig			= signature();
-	$visit			= $_SESSION['canary']['visit'];
-	$_SESSION['auth']	= pbk( $sig . $visit );
-}
-
-/**
- * Create current visitor's browser signature by sent headers
- */
-function signature() {
-	$headers	= httpHeaders();
-	$skip		= 
-	array(
-		'Accept-Datetime',
-		'Accept-Encoding',
-		'Content-Length',
-		'Cache-Control',
-		'Content-Type',
-		'Content-Md5',
-		'Referer',
-		'Cookie',
-		'Expect',
-		'Date',
-		'TE'
-	);
-	
-	$search		= 
-	array_intersect_key( 
-		array_keys( $headers ), 
-		array_reverse( $skip ) 
-	);
-	
-	$match		= '';
-	foreach ( $headers as $k => $v ) {
-		$match .= $v[0];
-	}
-}
-
-/**
- * Process HTTP_* variables
- */
-function httpHeaders() {
-	$val = array();
-	foreach ( $_SERVER as $k => $v ) {
-		if ( 0 === strncasecmp( $k, 'HTTP_', 5 ) ) {
-			$a = explode( '_' ,$k );
-			array_shift( $a );
-			array_walk( $a, function( &$r ) {
-				$r = ucfirst( strtolower( $r ) );
-			} );
-			$val[ implode( '-', $a ) ] = $v;
-		}
-	}
-	return $val;
-}
-
-
-/* Site configuration */
-
-/**
- * Parse and filter sent site settings
- */
-function getSettings( $conf ) {
-	$filter = array(
-		'csrf'		=> \FILTER_SANITIZE_STRING,
-		'title'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'tagline'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'posts'		=>
-		array(
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> 
-			array(
-				'default'	=> 5,
-				'min_range'	=> 1,
-				'max_range'	=> 100 
-			)
-		),
-		'uploads'		=>
-		array(
-			'filter'	=> \FILTER_VALIDATE_INT,
-			'options'	=> 
-			array(
-				'default'	=> 1,
-				'min_range'	=> 0,
-				'max_range'	=> 1 
-			)
-		),
-		'datetime'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'timezone'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
-		'copyright'	=> \FILTER_UNSAFE_RAW
-	);
-	
-	$data			= 
-	\filter_input_array( \INPUT_POST, $filter );
-	
-	if ( !validateCsrf( 'settings', $data['csrf'] ) ) {
-		return null;
-	}
-	
-	if ( !empty( $data['copyright'] ) ) {
-		 $data['copyright']  = 
-		 	clean( $data['copyright'], $conf['tags'] );
-	}
-	
-	if ( !in_array(
-		$data['timezone'],
-		\DateTimeZone::listIdentifiers() 
-	) ) {
-		$data['timezone'] = 'America/New_York';
-	}
-	
-	try {
-		$test		= date( $data['datetime'] );
-	} catch( \Exception $e ) {
-		$data['datetime'] = 'l, M d, Y';
-	}
-	
-	$uploads	= 
-		empty( $data['uploads'] ) ? false : 
-			( ( ( int ) $data['uploads'] == 1 ) ? true : false );
-	
-	$params = array(
-		'title'		=> 
-			empty( $data['title'] ) ? 
-				'No title' : $data['title'],
-		'tagline'	=>
-			empty( $data['tagline'] ) ? 
-				'No tagline' : $data['tagline'],
-		'allow_uploads'	=> $uploads,
-		'post_limit'	=> $data['posts'],
-		'date_format'	=> $data['datetime'],
-		'timezone'	=> $data['timezone'],
-		'copyright'	=> $data['copyright']
-	);
-	
-	return $params;
-}
-
-
-
-/* Templates, rendering, and configuration */
-
-
-/**
- * Replace template placeholders with data
- */
-function render( $content, $template ) {
-	$v = array();
-	foreach( array_keys( $content ) as $k ) {
-		$v[] = '{' . $k . '}';
-	}
-	return str_replace( $v, array_values( $content ), $template );
-}
-
-/**
- * Load file contents and check for any server-side code
- */
-function loadFile( $name ) {
-	if ( file_exists( $name ) ) {
-		$data = file_get_contents( $name );
-		if ( false !== strpos( $data, '<?' ) ) {
-			endf( MSG_SSDETCT );
-		}
-		return $data;
-		
-	} else {
-		endf( MSG_LOADERR );
-	}
-}
-
-/**
- * Load configuration file ( JSON formatted )
- */
-function loadConf() {
-	$data	= trim( loadFile( STORE . CONFIG ) );
-	if ( empty( $data ) ) {
-		endf( MSG_CONFERR );
-	}
-	
-	$params	= json_decode( utf8_encode( $data ), true, 6 );
-	if ( empty( $params ) ) {
-		endf( MSG_CONFERR );
-	}
-	
-	return $params;
-}
-
-/**
- * Save configuration file as JSON
- */
-function saveConf( array $conf ) {
-	$params	= array_merge( loadConf(), $conf );
-	$data	= json_encode( $params, 
-			\JSON_HEX_QUOT | \JSON_HEX_TAG | 
-			\JSON_PRETTY_PRINT );
-	
-	file_put_contents( STORE . CONFIG, $data );
-}
-
-/**
- * Load a specific template file
- */
-function loadTpl( $conf, $name, $admin = false ) {
-	if ( $admin ) {
-		return loadFile( TEMPLATES . 'admin' . 
-			\DIRECTORY_SEPARATOR . $name );
-	}
-	return loadFile( TEMPLATES . $conf['theme'] . 
-		\DIRECTORY_SEPARATOR . $name );
-}
-
-/**
- * Get the configured theme
- */
-function getTheme( $conf ) {
-	return $conf['theme_dir'] . $conf['theme'] . '/';
-}
-
-/**
- * Get the configured theme
- */
-function getAdminTheme( $conf ) {
-	return $conf['theme_dir'] . 'admin' . '/';
-}
-
-/**
- * Get all available themes except 'admin'
- */
-function getAvailableThemes( $conf ) {
-	$dir	= TEMPLATES;
-	$themes	= array_filter( 
-			glob( $dir . '*' ), 
-			function( $t ) {
-				if ( 
-					is_dir( $t ) && 
-					false === strpos( $t, 'admin' )
-				) {
-					return true;
-				}
-			}
-		);
-	
-	var_dump( $themes );
-}
-
-/**
- * Format datetime into datetime-local input format
- */
-function dateTimeFormat( $pub ) {
-	$t = ( int ) $pub;
-	return date( 'Y-m-d', $t ) . 'T' . date( 'H:i', $t );
-}
 
 
 /* HTML Filtering */
-
 
 /**
  * HTML safe character entities in UTF-8
@@ -1442,7 +852,6 @@ function embeds( $html ) {
 	);
 }
 
-
 /**
  * Convert Markdown formatted text into HTML tags
  * 
@@ -1555,93 +964,214 @@ function markdown( $html, $prefix = '' ) {
 	return trim( $html );
 }
 
+
+
+/* Post storage */
+
 /**
- * Navigation page helper
+ * Storage root path for all posts
  */
-function pageLink( $text, $url, $tool = '' ) {
-	if ( empty( $tool ) ) {
-		return 
-		"<li><a href='{$url}'>{$text}</a></li>";
+function postRoot( $drafts = false ) {
+	if ( $drafts ) {
+		return rtrim( STORE, \DIRECTORY_SEPARATOR ) . 
+			\DIRECTORY_SEPARATOR . 'drafts';
 	}
-	return 
-	"<li><a href='{$url}' title='{$tool}'>{$text}</a></li>";
+	return rtrim( STORE, \DIRECTORY_SEPARATOR ) . 
+		\DIRECTORY_SEPARATOR . 'posts';
 }
 
 /**
- * Format each post into the post template
+ * Save a post in its specified path directory
+ * Replaces an existing post in the same location
  */
-function parsePosts( $posts, $paths, $args, $conf ) {
-	if ( isset( $args['mode'] ) ) {
-		$ptpl	= loadTpl( $conf, 'tpl_postfrag.html', true );
-	} else {
-		$ptpl	= loadTpl( $conf, 'tpl_postfrag.html' );
+function savePost( $path, $data, $draft = false ) {
+	$paths	= explode( '/', $path );
+	$root	= postRoot( $draft );
+	
+	foreach( $paths as $frag ) {
+		$root .= \DIRECTORY_SEPARATOR . $frag;
+		if ( is_dir( $root ) ) {
+			continue;
+		}
+		
+		mkdir( $root, 0600 );
 	}
-	$parsed	= '';
+	$p	= $draft ? DRAFT_FILE : POST_FILE;
+	$file	= $root . \DIRECTORY_SEPARATOR . $p;
+	
+	# Edit the post if it already exists
+	if ( file_exists( $file ) ) {
+		$edit	= loadPost( $file );
+		$data	= array_merge( $edit, $data );
+	}
+		
+	$post	= json_encode( $data, 
+			\JSON_HEX_QUOT | \JSON_HEX_TAG | 
+			\JSON_HEX_APOS | \JSON_PRETTY_PRINT );
+	
+	
+	file_put_contents( $file, $post );
+	return '/' . $path;
+}
+
+/** 
+ * Return uploaded $_FILES array into a more sane format
+ * 
+ * https://secure.php.net/manual/en/features.file-upload.multiple.php
+ */
+function parseUploads() {
+	$files = array();
+	
+	foreach( $_FILES as $name => $file ) {
+		if ( is_array($file['name']) ) {
+			foreach ( $file['name'] as $n => $f ) {
+				$files[$name][$n] = array();
+				
+				foreach( $file as $k => $v ) {
+					$files[$name][$n][$k] = 
+						$file[$k][$n];
+				}
+			}
+		} else {
+        		$files[$name][] = $file;
+		}
+	}
+        return $files;
+}
+
+/**
+ * Filter upload file name into a safe format
+ */
+function filterUpName( $name ) {
+	if ( empty( $name ) ) {
+		return '_';
+	}
+	
+	$name	= preg_replace('/[^\pL_\-\d\.\s]', ' ' );
+	return preg_replace( '/\s+/', '-', trim( $name ) );
+}
+
+/**
+ * Rename file to prevent overwriting existing ones by 
+ * appending _i where 'i' is incremented by 1 until no 
+ * more files with the same name are found
+ */
+function dupRename( $up ) {
+	$info	= pathinfo( $up );
+	$ext	= $info['extension'];
+	$name	= $info['filename'];
+	$dir	= $info['dirname'];
+	$file	= $up;
 	$i	= 0;
 	
-	foreach( $posts as $post ) {
-		$pdate	= dateWithoutSlug( dateAndSlug( $paths[$i], $args ) );
-		$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
-		
-		$ppath	= datePath( $post['slug'], strtotime( $pdate ) );
-		
-		$vars	= 
-		array(
-			'post_title'	=> $post['title'],
-			'post_body'	=> $post['body'],
-			'post_summary'	=> $post['summary'],
-			'post_id'	=> base64_encode( $ppath ),
-			'post_date'	=> $pdate,
-			'post_path'	=> $ppath
-		);
-		
-		$parsed .= render( $vars, $ptpl );
-		$i++;
+	while ( file_exists( $file ) ) {
+		$file = $dir . \DIRECTORY_SEPARATOR . 
+			$name . '_' . $i++ . '.' . $ext;
 	}
 	
-	return $parsed;
+	return $file;
 }
 
 /**
- * Next / Previous page links on the index and archive pages
+ * Move uploaded files to the same directory as the post
  */
-function indexPages( $args, $conf, $paths ) {
-	$page	= isset( $args['page'] ) ? 
-			( int ) $args['page'] : 1;
-	$pre	= isset( $args['mode'] ) ? 
-			$args['mode'] . '/' : '';
+function saveUploads( $path, $draft = false ) {
+	$s	= \DIRECTORY_SEPARATOR;
+	$root	= postRoot( $draft );
+	$files	= parseUploads();
+	$store	= $root . $s . $path . $s;
 	
-	$npa	= '';
-	$pm1	= $page - 1;
-	if ( $page > 1 ) {
-		if ( 0 <= $pm1 ) {
-			if ( count( $paths ) < $conf['post_limit'] ) {
-				pageLink( 'Next', $pre . 'page'. $pm1 );
+	foreach ( $files as $name ) {
+		foreach( $name as $file ) {
+			# If errors were found, skip
+			if ( $file['error'] != \UPLOAD_ERR_OK ) {
+				continue;
 			}
-			$npa .= 
-			pageLink( 'Home', '/' );
-		} else {
-			$npa .= 
-			pageLink( 'Next', $pre . 'page'. $pm1 );
+			
+			$tn	= $file['tmp_name'];
+			$n	= filterUpName( $file['name'] );
+			
+			# Check for duplicates and rename 
+			$up	= dupRename( $store . $n );
+			\move_uploaded_file( $tn, $up );
 		}
-	} else {
-		$npa .= '<li></li>';
+	}
+}
+
+/**
+ * Move files uploaded to the draft path to their published location
+ */
+function moveDraft( $path ) {
+	$s	= \DIRECTORY_SEPARATOR;
+	$store	= postRoot( false ) . $s . $path . $s;
+	$dstore	= postRoot( true ) . $s . $path . $s;
+	
+	$dfiles	= array_filter( glob( $dstore . '*' ), 'is_file' );
+	foreach( $dfiles as $file ) {
+		$info = pathinfo( $file );
+		if ( $info['basename'] != DRAFT_FILE ) {
+			rename( $file, $store . $info['basename'] );
+		} else {
+			rename( $file, $store . POST_FILE );
+		}
+	}
+}
+
+/**
+ * Remove a post and any attachments permanently
+ */
+function deletePost( $path, $draft = false ) {
+	$s	= \DIRECTORY_SEPARATOR;
+	$root	= postRoot( $draft );
+	$dir	= $root . $s . $path;
+	
+	$files	= array_filter( glob( $dir . $s . '*' ), 'is_file' );
+	array_map( 'unlink', $files );
+	
+	if ( rmdir( $dir ) ) {
+		message( MSG_POSTDEL );
+	}
+	message( MSG_POSTNDEL );
+}
+
+
+
+/* Post searching, sorting, and pagination */
+
+/**
+ * Adjust page numbers
+ */
+function adjustPage( $args ) {
+	$page	= 
+	isset( $args['page'] ) ? 
+		$args['page'] : 1;
+	
+	if ( mb_strlen( $page, '8bit' ) > 4 ) {
+		$page = 1;
 	}
 	
-	if ( empty( $paths ) ) {
-		return $npa;
+	$page	= ( int ) $page;
+	if ( $page <= 0 ) {
+		$page = 1;
 	}
 	
-	if ( 
-		count( $paths ) >= $conf['post_limit'] && 
-		$page >= 1
-	) {
-		$npa .= 
-		pageLink( 'Previous', '/' . $pre . 'page'. ( $page + 1 ) );
+	return $page;
+}
+
+/**
+ * Select the file type post/draft etc... by mode
+ */
+function fileByMode( $args ) {
+	if ( isset( $args['mode'] ) ) {
+		switch( $args['mode'] ) {
+			case 'drafts':
+				return DRAFT_FILE;
+				
+			default: 
+				return POST_FILE;
+		}
 	}
-	
-	
-	return $npa;
+	return POST_FILE;
 }
 
 /**
@@ -1689,6 +1219,314 @@ function siblingPages( $pages, $args ) {
 	return $npa;
 }
 
+/**
+ * Sort returned file paths by last modified date
+ */
+function sortByModified( $post, $drafts = false ) {
+	# Root path + the date - post slug
+	if ( $drafts ) {
+		$f = strlen( DRAFT_FILE ) + 1; 
+	} else {
+		$f = strlen( POST_FILE ) + 1; 
+	}
+	$i = strlen( postRoot( $drafts ) ) + $f;
+	
+	usort( $post, function( $a, $b ) use ( $i ) {
+		$c = strncmp( $a, $b, $i );
+		
+		# If the posts were created on the same day, 
+		# sort by created date (modified date on *nix)
+		return ( 0 === $c ) ? 
+			( filectime( $b ) - filectime( $a ) ) : 
+			( $c < 0 );
+	} );
+	
+	return $post;
+}
+
+/**
+ * Find the post data file of a specific post by date and slug
+ */
+function exactPost( $args, $drafts = false ) {
+	$s	= \DIRECTORY_SEPARATOR;
+	$path	= array(
+		$args['year'], $args['month'], 
+		$args['day'], $args['slug']
+	);
+	
+	if ( $drafts ) {
+		$p = DRAFT_FILE;
+	} else {
+		$p = fileByMode( $args );
+	}
+	
+	return postRoot( $drafts ) . $s . implode( $s, $path ) . 
+		$s . $p;
+}
+
+/**
+ * Find a post if it exists. Returns JSON decoded post data
+ */
+function findPost( $args, $drafts = false ) {
+	$search = exactPost( $args, $drafts );
+	return loadPost( $search, $drafts  );
+}
+
+/**
+ * Navigation page helper
+ */
+function pageLink( $text, $url, $tool = '' ) {
+	if ( empty( $tool ) ) {
+		return 
+		"<li><a href='{$url}'>{$text}</a></li>";
+	}
+	return 
+	"<li><a href='{$url}' title='{$tool}'>{$text}</a></li>";
+}
+
+/**
+ * Next / Previous page links on the index and archive pages
+ */
+function indexPages( $args, $conf, $paths ) {
+	$page	= adjustPage( $args );
+	$pre	= isset( $args['mode'] ) ? 
+			$args['mode'] . '/' : '';
+	
+	$npa	= '';
+	$pm1	= $page - 1;
+	if ( $page > 1 ) {
+		if ( 0 <= $pm1 ) {
+			if ( count( $paths ) < $conf['post_limit'] ) {
+				pageLink( 'Next', $pre . 'page'. $pm1 );
+			}
+			$npa .= 
+			pageLink( 'Home', '/' );
+		} else {
+			$npa .= 
+			pageLink( 'Next', $pre . 'page'. $pm1 );
+		}
+	} else {
+		$npa .= '<li></li>';
+	}
+	
+	if ( empty( $paths ) ) {
+		return $npa;
+	}
+	
+	if ( 
+		count( $paths ) >= $conf['post_limit'] && 
+		$page >= 1
+	) {
+		$npa .= 
+		pageLink( 'Previous', '/' . $pre . 'page'. ( $page + 1 ) );
+	}
+	
+	
+	return $npa;
+}
+
+/**
+ * Search for posts in a day/month/year range
+ */
+function searchDays( $args ) {
+	$s	= \DIRECTORY_SEPARATOR;
+	$p	= fileByMode( $args );
+	$params	= array();
+	
+	if ( isset( $args['year'] ) ) {
+		$params['year']	= $args['year'];
+		$f		= 
+			'*'. $s .'*'. $s .'*'. $s . $p;
+	}
+	if ( isset( $args['month'] ) ) {
+		$params['month']	= $args['month'];
+		$f		= '*' . $s . '*' . $s . $p;
+	}
+	if ( isset( $args['day'] ) ) {
+		$params['day']	= $args['day'];
+		$f		= '*' . $s . $p;
+	}
+	
+	$drafts	= ( fileByMode( $args ) == DRAFT_FILE ) ? 
+			true : false;
+	$search	= postRoot( $drafts ) . $s . implode( $s, $params ) . $s;
+	$posts	= glob( $search . $f, \GLOB_NOSORT );
+	$drafts	= ( $p == POST_FILE ) ? true : false;
+	
+	return sortByModified( $posts, $drafts );
+}
+
+/**
+ * Get posts that are closest to the current date path
+ */
+function siblingPosts( $args ) {
+	$mode		= isset( $args['mode'] ) ?
+				$args['mode'] : null;
+	
+	$drafts		= 
+	( fileByMode( $args ) == DRAFT_FILE ) ? 
+			true : false;
+	$s1		=  
+	searchDays( array( 
+		'year'	=> $args['year'], 
+		'month'	=> ( $args['month'] - 1 ),
+		'mode'	=> $mode
+	) );
+	$s2		=  
+	searchDays( array( 
+		'year'	=> $args['year'], 
+		'month'	=> $args['month'],
+		'mode'	=> $mode
+	) );
+	$s3		=  
+	searchDays( array( 
+		'year'	=> $args['year'], 
+		'month'	=> ( $args['month'] + 1 ),
+		'mode'	=> $mode
+	) );
+	$siblings	= array_merge( $s1, $s2, $s3 );
+	
+	if ( empty( $siblings ) ) {
+		$siblings = 
+		searchDays( array( 
+			'year'	=> $args['year'], 
+			'mode'	=> $mode 
+		) );
+	}
+	
+	if ( empty( $siblings ) ) {
+		if ( ( int ) $args['year'] < ( int ) date( 'Y' ) ) {
+			$siblings = 
+			searchDays( array( 
+				'year'	=> ( $args['year'] + 1 ), 
+				'mode'	=> $mode
+			), $drafts );
+		} else {
+			$siblings = 
+			searchDays( array( 
+				'year' 	=> ( $args['year'] - 1 ), 
+				'mode'	=> $mode
+			) );
+		}
+	}
+	
+	return $siblings;
+}
+
+/**
+ * Get posts that are closest neighbors to the current
+ */
+function nextPrev( $args ) {
+	$siblings	= siblingPosts( $args );
+	$current	= exactPost( $args );
+	
+	if ( !in_array( $current, $siblings ) ) {
+		return array();
+	}
+	$np		= array();
+	$k		= array_search( $current, $siblings );
+	
+	if ( $k > 0 ) {
+		$np[] = $siblings[$k - 1];
+	}
+	
+	if ( $k < count( $siblings ) - 1 ) {
+		$np[] = $siblings[$k + 1];
+	}
+	
+	return $np;
+}
+
+/**
+ * Paginate an archive index listing
+ */
+function archivePaginate( $args, $conf ) {
+	$paths		= searchDays( $args );
+	$page		= adjustPage( $args );
+	$offset		= ( $page - 1 ) * $conf['post_limit'];
+	
+	return 
+	array_slice( $paths, $offset, $conf['post_limit'] );
+}
+
+/**
+ * Ensure date arguments don't exceed today
+ */
+function enforceDates( $args ) {
+	$year		= isset( $args['year'] ) ? 
+				( int ) $args['year'] : ( int ) date( 'Y' );
+	
+	$month		= isset( $args['month'] ) ? 
+				( int ) $args['month'] : ( int ) date( 'n' );
+	
+	$day		= isset( $args['day'] ) ? 
+				( int ) $args['day'] : ( int ) date( 'j' );
+	
+	$m		= ( int ) date( 'n' );
+	$y		= ( int ) date( 'Y' );
+	$d		= ( int ) date( 'j' );
+	
+	$args['year']	= ( $year > $y || $year < YEAR_END ) ? 
+				 $y : $year;
+	
+	if ( $args['year'] == $year ) {
+		$args['month']	= ( $month > $m || $month <= 0 ) ? 
+					$m : $month;
+		
+	} else {
+		$args['month']	= ( $month <= 0 || $month > 12 ) ? 
+					1 : $month;
+	}
+	
+	$days	= cal_days_in_month( \CAL_GREGORIAN, $month, $year );
+	$day	= ( $day <= 0 || $day > $days ) ? 1 : $day;
+			
+	if ( $year == $y && $month == $m ) {
+		if ( $day > $d ) {
+			$day = $d;
+		}
+	}
+	
+	$args['day']	= $day;
+	
+	return $args;
+}
+
+/**
+ * Paginate the front page index listing
+ */
+function indexPaginate( $args, $conf, $mode = 'index' ) {
+	switch( $mode ) {
+		case 'drafts':
+		case 'pending':
+			$year	= ( ( int ) date( 'Y' ) ) + 10;
+			break;
+			
+		default:
+			$args = enforceDates( $args );
+			$year = $args['year'];
+	}
+	
+	$page		= isset( $args['page'] ) ? $args['page'] : 1;
+	
+	$offset		= ( $page - 1 ) * $conf['post_limit'];
+	$paths		= array();
+	
+	while( empty( $paths ) && $year > YEAR_END ) {
+		$paths	= searchDays( 
+			array( 
+				'year'	=> $year,
+				'mode'	=> $mode
+			), $mode
+		);
+		$year--;
+	}
+	
+	return 
+	array_slice( $paths, $offset, $conf['post_limit'] );
+}
+
+
 
 /* File attachment downloading */
 
@@ -1719,8 +1557,6 @@ function getAttach( $args, $conf ) {
 		$draft = true;
 	}
 	
-	
-	sessionCheck();
 	\session_write_close();
 	
 	$s	= \DIRECTORY_SEPARATOR;
@@ -1750,108 +1586,239 @@ function getAttach( $args, $conf ) {
 
 
 
-/* Security */
+/* User submitted forms */
 
 /**
- * Secure comparison of two strings in constant time
+ * Post form
  */
-function equals( $str1, $str2 ) {
-	if ( exists( 'hash_equals' ) ) {
-		return \hash_equals( $str1, $str2 );
-	}
-	return 
-	substr_count( $str1 ^ $str2, "\0" ) * 2 === 
-			strlen( $str1 . $str2 );
-}
-
-/**
- * For PHP versions less than 5.5, hash_pbkdf2 workaround
- */
-function pbkdf2( $algo, $txt, $salt, $rounds, $kl ) {
-	if ( exists( 'hash_pbkdf2' ) ) {
-		return 
-		\hash_pbkdf2( $algo, $txt, $salt, $rounds, $kl );
+function getPost( $conf ) {
+	$filter = array(
+		'csrf'		=> \FILTER_SANITIZE_STRING,
+		'edit'		=> \FILTER_SANITIZE_STRING,
+		'title'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'pubdate'	=> \FILTER_SANITIZE_STRING,
+		'slug'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'summary'	=> \FILTER_UNSAFE_RAW,
+		'body'		=> \FILTER_UNSAFE_RAW,
+		'draft'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'delpost'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS
+	);
+	
+	$data			= 
+	\filter_input_array( \INPUT_POST, $filter );
+	
+	if ( !validateCsrf( 'post', $data['csrf'] ) ) {
+		message( MSG_FORMEXP, true );
 	}
 	
-	$hl	= strlen( $hash( $algo, '', true ) );
-	$bc	= ceil( $kl / $hl );
-	$hash	= '';
+	if ( empty( $data['body'] ) ) {
+		message( MSG_BODYM );
+	}
 	
-	for ( $i = 0; $i < $bc; $i++ ) {
-		$last = $salt . pack( 'N', $i );
-		$last = $xor = 	
-			\hash_hmac( $algo, $last, $txt, true );
-		
-		for ( $j = 1; $j < $rounds; $j++ ) {
-			$xor ^= 
-			\hash_hmac( $algo, $last, $txt, true );
+	$draft			= isset( $data['draft'] ) ? 
+					true : false;
+	
+	if ( !empty( $data['delpost'] ) ) {
+		if ( empty( $data['edit'] ) ) {
+			return message( MSG_INVALID, true );
 		}
-		$hash .= $xor;
+		
+		$edit	= editTime( $data['edit'] );
+		$path	= checkEdit( $edit );
+		deletePost( $path, $draft );
 	}
 	
-	return base64_encode( mb_substr( $hash, 0, $kl ) );
+	# Post content exactly as entered by the user
+	$data['raw']		= $data['body'];
+	
+	
+	$data['slug']		= 
+		slugify( $data['title'], $data['slug'] );
+		
+	$pub			= 
+		empty( $data['pubdate'] ) ?
+			time() : strtotime( $data['pubdate'] . ' UTC' );
+	
+	if ( empty( $data['edit'] ) ) {
+		$path	= datePath( $data['slug'], $pub );
+	} else {
+		$edit	= editTime( $data['edit'] );
+		$path	= checkEdit( $edit );
+	}
+	
+	# Uploads view path
+	$uppath			= '/read/' . $path . '/';
+	
+	$data['body']		= 
+		clean( $data['body'], $conf['tags'], true, $uppath );
+	if ( empty( $data['body'] ) ) {
+		message( MSG_BODYM );
+	}
+	
+	
+	$data['title']		= 
+		empty( $data['title'] ) ? 
+			fillTitle( $data['body'] ) : $data['title'];
+	
+	$data['summary']	= 
+		empty( $data['summary'] ) ? 
+			smartTrim( strip_tags( $data['body'] ), SUMMARY_LEN ) : 
+			strip_tags( 
+				clean( $data['summary'], 
+					$conf['tags'], true, $uppath ) 
+			);
+	
+	$params			= 
+	array(
+		'title'		=> $data['title'],
+		'body'		=> $data['body'],
+		'summary'	=> $data['summary'],
+		'raw'		=> $data['raw'],
+		'slug'		=> $data['slug'],
+		'pubdate'	=> $pub
+	);
+	
+	return array( $path, $params, $draft );
 }
 
 /**
- * Key derivation function
+ * Login form
  */
-function pbk( 
-	$txt, 
-	$salt	= '', 
-	$algo	= 'tiger160,4',
-	$rounds	= 1000, 
-	$kl	= 128
-) {
-	$salt	= empty( $salt ) ? bin2hex( bytes( 16 ) ) : $salt;
-	$hash	= pbkdf2( $algo, $txt, $salt, $rounds, $kl );
-	$out	= array(
-			$algo, $salt, $rounds, $kl, $hash
-		);
-	return base64_encode( implode( '$', $out ) );
+function getLogin() {
+	$filter = array(
+		'csrf'		=> \FILTER_SANITIZE_STRING,
+		'password'	=> \FILTER_UNSAFE_RAW
+	);
+	
+	$data			= 
+	\filter_input_array( \INPUT_POST, $filter );
+	
+	if ( !validateCsrf( 'login', $data['csrf'] ) ) {
+		message( MSG_FORMEXP, true );
+	}
+	
+	if ( empty( $data['password'] ) ) {
+		message( MSG_LOGININV, true );
+	}
+	return $data['password'];
 }
 
 /**
- * Verify derived key against plain text
+ * Password change form
  */
-function verifyPbk( $txt, $hash ) {
-	if ( empty( $hash ) || mb_strlen( $hash, '8bit' ) > 600 ) {
-		return false;
-	}
-	$key	= base64_decode( $hash, true );
-	if ( false === $key ) {
-		return false;
+function getPass() {
+	$filter = array(
+		'csrf'		=> \FILTER_SANITIZE_STRING,
+		'oldpassword'	=> \FILTER_UNSAFE_RAW,
+		'newpassword'	=> \FILTER_UNSAFE_RAW
+	);
+	
+	$data			= 
+	\filter_input_array( \INPUT_POST, $filter );
+	
+	if ( !validateCsrf( 'changePass', $data['csrf'] ) ) {
+		message( MSG_FORMEXP, true );
 	}
 	
-	$k	= explode( '$', $key );
-	if ( empty( $k ) || empty( $txt ) ) {
-		return false;
-	}
-	if ( count( $k ) != 5 ) {
-		return false;
-	}
-	if ( !in_array( $k[0], \hash_algos() , true ) ) {
-		return false;
+	if ( 
+		empty( $data['oldpassword'] ) || 
+		empty( $data['newpassword'] ) 
+	) {
+		message( MSG_INVALID, true );
 	}
 	
-	$pbk	= 
-	\hash_pbkdf2( $k[0], $txt,$k[1], ( int ) $k[2], ( int ) $k[3] );
-	
-	return equals( cleanPbk( $k[4] ),  $pbk );
+	return array(
+		'oldpassword'	=> $data['oldpassword'],
+		'newpassword'	=> $data['newpassword']
+	);
 }
 
 /**
- * Scrub the derived key of any invalid characters
+ * Parse and filter sent site settings
  */
-function cleanPbk( $hash ) {
-	return preg_replace( '/[^a-f0-9\$]+$/i', '', $hash );
+function getSettings( $conf ) {
+	$filter = array(
+		'csrf'		=> \FILTER_SANITIZE_STRING,
+		'title'		=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'tagline'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'posts'		=>
+		array(
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> 
+			array(
+				'default'	=> 5,
+				'min_range'	=> 1,
+				'max_range'	=> 100 
+			)
+		),
+		'uploads'		=>
+		array(
+			'filter'	=> \FILTER_VALIDATE_INT,
+			'options'	=> 
+			array(
+				'default'	=> 1,
+				'min_range'	=> 0,
+				'max_range'	=> 1 
+			)
+		),
+		'datetime'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'timezone'	=> \FILTER_SANITIZE_FULL_SPECIAL_CHARS,
+		'copyright'	=> \FILTER_UNSAFE_RAW
+	);
+	
+	$data			= 
+	\filter_input_array( \INPUT_POST, $filter );
+	
+	if ( !validateCsrf( 'settings', $data['csrf'] ) ) {
+		message( MSG_FORMEXP, true );
+	}
+	
+	if ( !empty( $data['copyright'] ) ) {
+		 $data['copyright']  = 
+		 	clean( $data['copyright'], $conf['tags'] );
+	}
+	
+	if ( !in_array(
+		$data['timezone'],
+		\DateTimeZone::listIdentifiers() 
+	) ) {
+		$data['timezone'] = 'America/New_York';
+	}
+	
+	try {
+		$test		= date( $data['datetime'] );
+	} catch( \Exception $e ) {
+		$data['datetime'] = 'l, M d, Y';
+	}
+	
+	$uploads	= 
+		empty( $data['uploads'] ) ? false : 
+			( ( ( int ) $data['uploads'] == 1 ) ? true : false );
+	
+	$params = array(
+		'title'		=> 
+			empty( $data['title'] ) ? 
+				'No title' : $data['title'],
+		'tagline'	=>
+			empty( $data['tagline'] ) ? 
+				'No tagline' : $data['tagline'],
+		'allow_uploads'	=> $uploads,
+		'post_limit'	=> $data['posts'],
+		'date_format'	=> $data['datetime'],
+		'timezone'	=> $data['timezone'],
+		'copyright'	=> $data['copyright']
+	);
+	
+	return $params;
 }
 
 /**
  * Generate a form-specific anti-cross-site-request forgery token
  */
 function getCsrf( $form ) {
-	sessionCheck();
-	$salt				= bin2hex( bytes( 4 ) );
+	$salt				= 
+		bin2hex( random_bytes( 4 ) );
+	
 	$_SESSION['form_' . $form]	= $salt;
 	return pbk( $salt . $form . $_SESSION['canary']['visit'] );
 }
@@ -1860,7 +1827,6 @@ function getCsrf( $form ) {
  * Validate anti-cross-site-request forgery token for this form
  */
 function validateCsrf( $form, $hash ) {
-	sessionCheck();
 	if ( !isset( $_SESSION['form_' . $form] ) ) {
 		return false;
 	}
@@ -1873,139 +1839,43 @@ function validateCsrf( $form, $hash ) {
 }
 
 /**
- * Generate cryptographically secure pseudorandom bytes
+ * Verify post editing profile
  */
-function bytes( $len ) {
-	if ( exists( 'random_bytes' ) ) {
-		return \random_bytes( $len );
+function editTime( $edit ) {
+	if ( mb_strlen( $edit, '8bit' ) > 1000 ) {
+		message( MSG_INVALID, true );
 	}
 	
-	if ( exists( 'openssl_random_pseudo_bytes' ) ) {
-		return \openssl_random_pseudo_bytes( $len );
+	$data	= base64_decode( $edit, true );
+	
+	if ( false === $data ) {
+		message( MSG_INVALID, true );
+	}
+	if ( false === strpos( $data, '/' ) ) {
+		message( MSG_INVALID, true );
 	}
 	
-	if ( exists( 'mcrypt_create_iv' ) ) {
-		return \mcrypt_create_iv( $len, \MCRYPT_DEV_URANDOM );
-	}
+	return $data;
 }
 
 /**
- * Session owner and staleness marker
- * 
- * @link https://paragonie.com/blog/2015/04/fast-track-safe-and-secure-php-sessions
+ * Verify editing path contains all needed components
  */
-function sessionCanary( $visit = null ) {
-	$_SESSION['canary'] = 
-	array(
-		'exp'	=> time() + SESSION_EXP,
-		'visit'	=> empty( $visit ) ? 
-				bin2hex( bytes( 12 ) ) : $visit
-	);
-}
-
-/**
- * Check session staleness
- */
-function sessionCheck( $reset = false ) {
-	session( $reset );
-	
-	if ( empty( $_SESSION['canary'] ) ) {
-		sessionCanary();
-		return;
+function checkEdit( $data ) {
+	$paths	= explode( '/', $data );
+	if ( count( $paths ) != 4 ) {
+		message( MSG_INVALID, true );
 	}
 	
-	if ( time() > ( int ) $_SESSION['canary']['exp'] ) {
-		$visit = $_SESSION['canary']['visit'];
-		\session_regenerate_id( true );
-		sessionCanary( $visit );
-	}
+	return $data;
 }
 
-/**
- * Scrub globals
- */
-function cleanGlobals() {
-	if ( !isset( $GLOBALS ) ) {
-		return;
-	}
-	foreach ( $GLOBALS as $k => $v ) {
-		if ( 0 != strcasecmp( $k, 'GLOBALS' ) ) {
-			unset( $GLOBALS[$k] );
-		}
-	}
-}
 
-/**
- * End current session activity
- */
-function cleanSession() {
-	if ( \session_status() === \PHP_SESSION_ACTIVE ) {
-		\session_unset();
-		\session_destroy();
-		\session_write_close();
-	}
-}
-
-/**
- * Initiate a session if it doesn't already exist
- * Optionally reset and destroy session data
- */
-function session( $reset = false ) {
-	if ( 
-		\session_status() === \PHP_SESSION_ACTIVE && 
-		!$reset 
-	) {
-		return;
-	}
-	
-	if ( \session_status() != \PHP_SESSION_ACTIVE ) {
-		\session_name( 'is' );
-		\session_start();
-	}
-	if ( $reset ) {
-		\session_regenerate_id( true );
-		foreach ( array_keys( $_SESSION ) as $k ) {
-			unset( $_SESSION[$k] );
-		}
-	}
-}
 
 
 /**
- * Scrub all outputs and end the session
+ * Routing
  */
-function endf( $msg = '' ) {
-	cleanGlobals();
-	cleanSession();
-		
-	ob_start();
-	ob_end_clean();
-	die( $msg );
-}
-
-/**
- * Check if a function exists ( Suhosin compatible )
- * 
- * @param string $func Function name
- * @return boolean true If the function exists
- */
-function exists( $func ) {
-	if ( \extension_loaded( 'suhosin' ) ) {
-		$exts = ini_get( 'suhosin.executor.func.blacklist' );
-		if ( !empty( $exts ) ) {
-			$blocked	= explode( ',', strtolower( $exts ) );
-			$blocked	= array_map( 'trim', $blocked );
-			$search		= strtolower( $func );
-			
-			return ( 
-				true	== \function_exists( $func ) && 
-				false	== array_search( $search, $blocked ) 
-			);
-		}
-	}
-	
-	return \function_exists( $func );
-}
 
 /**
  * Paths are sent in bare. Make them suitable for matching.
@@ -2022,35 +1892,23 @@ function cleanRoute( $k, $v, $route ) {
 /**
  * Filter path parameters to get rid of numeric indexes
  */
-function filter( $matches ) {
-	return array_intersect_key(
-		$matches, 
-		array_flip( 
-			array_filter(
-				array_keys( $matches ), 
-				'is_string' 
-			)
-		)
+function filterParams( $params ) {
+	array_shift( $params );
+	return array_filter( 
+		$params, 
+		function( $k ) {
+			return is_string( $k );
+		}, \ARRAY_FILTER_USE_KEY 
 	);
 }
 
 /**
  * Route the current path according to the specified callback map
  */
-function route( $routes ) {
+function route( array $routes, array $markers ) {
 	$verb		= strtolower( $_SERVER['REQUEST_METHOD'] );
 	$path		= $_SERVER['REQUEST_URI'];
-	$markers	= 
-	array(
-		'*'	=> '(?<all>.+?)',
-		':page'	=> '(?<page>[1-9][0-9]*)',
-		':year'	=> '(?<year>[2][0-9]{3})',
-		':month'=> '(?<month>[0-3][0-9]{1})',
-		':day'	=> '(?<day>[0-9][0-9]{1})',
-		':slug'	=> '(?<slug>[\pL\-\d]{1,100})',
-		':mode'	=> '(?<mode>edit|drafts|pending)',
-		':file'	=> '(?<file>[\pL_\-\d\.\s]{1,120})'
-	);
+	
 	$k		= array_keys( $markers );
 	$v		= array_values( $markers );
 	$found		= false;
@@ -2059,21 +1917,138 @@ function route( $routes ) {
 		if ( $map[0] != $verb ) {
 			continue;
 		}
-		
 		$rx = cleanRoute( $k, $v, $map[1] );
 		if ( preg_match( $rx, $path, $params ) ) {
-			$found = true;
+			$found	= true;
 			if ( is_callable( $map[2] ) ) {
-				$params = filter( $params );
+				$params	= filterParams( $params );
 				call_user_func( $map[2], $params );
+				break;
 			}
-			break;
 		}
 	}
 	
 	if ( !$found ) {
 		message( MSG_NOTFOUND );
 	}
+}
+
+
+
+
+/* Templates, rendering, and configuration */
+
+/**
+ * Replace template placeholders with data
+ */
+function render( $content, $template ) {
+	$v = array();
+	foreach( array_keys( $content ) as $k ) {
+		$v[] = '{' . $k . '}';
+	}
+	return str_replace( $v, array_values( $content ), $template );
+}
+
+/**
+ * Load file contents and check for any server-side code
+ */
+function loadFile( $name ) {
+	if ( file_exists( $name ) ) {
+		$data = file_get_contents( $name );
+		if ( false !== strpos( $data, '<?' ) ) {
+			endf( MSG_SSDETCT );
+		}
+		return $data;
+		
+	}
+	return null;
+}
+
+/**
+ * Load configuration file ( JSON formatted )
+ */
+function loadConf() {
+	$data	= trim( loadFile( STORE . CONFIG ) );
+	if ( empty( $data ) ) {
+		endf( MSG_CONFERR );
+	}
+	
+	$params	= json_decode( utf8_encode( $data ), true, 6 );
+	if ( empty( $params ) ) {
+		endf( MSG_CONFERR );
+	}
+	
+	return $params;
+}
+
+/**
+ * Save configuration file as JSON
+ */
+function saveConf( array $conf ) {
+	$params	= array_merge( loadConf(), $conf );
+	$data	= json_encode( $params, 
+			\JSON_HEX_QUOT | \JSON_HEX_TAG | 
+			\JSON_PRETTY_PRINT );
+	
+	file_put_contents( STORE . CONFIG, $data );
+}
+
+/**
+ * Load a content page and return decoded JSON
+ */
+function loadPost( $file ) {
+	$data = loadFile( $file );
+	if ( empty( $data ) ) {
+		message( MSG_NOTFOUND );
+	}
+	
+	$params	= json_decode( utf8_encode( $data ), true );
+	if ( empty( $params ) ) {
+		message( MSG_POSTDERR, true );
+	}
+	
+	return $params;
+}
+
+/**
+ * Load list of post paths, JSON decoded and returns an array
+ */
+function loadPosts( $paths ) {
+	$posts	= array();
+	foreach ( $paths as $path ) {
+		$post	= loadPost( $path );
+		if ( !empty( $post ) ) {
+			$posts[] = $post;
+		}
+	}
+	
+	return $posts;
+}
+
+/**
+ * Load a specific template file
+ */
+function loadTpl( $conf, $name, $admin = false ) {
+	if ( $admin ) {
+		return loadFile( TEMPLATES . 'admin' . 
+			\DIRECTORY_SEPARATOR . $name );
+	}
+	return loadFile( TEMPLATES . $conf['theme'] . 
+		\DIRECTORY_SEPARATOR . $name );
+}
+
+/**
+ * Get the configured theme
+ */
+function getTheme( $conf ) {
+	return $conf['theme_dir'] . $conf['theme'] . '/';
+}
+
+/**
+ * Get the configured theme
+ */
+function getAdminTheme( $conf ) {
+	return $conf['theme_dir'] . 'admin' . '/';
 }
 
 /**
@@ -2101,17 +2076,72 @@ function message( $msg, $scrub = false, $admin = false ) {
 	die();
 }
 
+/**
+ * Format each post into the post template
+ */
+function parsePosts( $posts, $paths, $args, $conf ) {
+	if ( isset( $args['mode'] ) ) {
+		$ptpl	= loadTpl( $conf, 'tpl_postfrag.html', true );
+	} else {
+		$ptpl	= loadTpl( $conf, 'tpl_postfrag.html' );
+	}
+	$parsed	= '';
+	$i	= 0;
+	
+	foreach( $posts as $post ) {
+		$pdate	= dateWithoutSlug( dateAndSlug( $paths[$i], $args ) );
+		$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
+		
+		$ppath	= datePath( $post['slug'], strtotime( $pdate ) );
+		
+		$vars	= 
+		array(
+			'post_title'	=> $post['title'],
+			'post_body'	=> $post['body'],
+			'post_summary'	=> $post['summary'],
+			'post_id'	=> base64_encode( $ppath ),
+			'post_date'	=> $pdate,
+			'post_path'	=> $ppath
+		);
+		
+		$parsed .= render( $vars, $ptpl );
+		$i++;
+	}
+	
+	return $parsed;
+}
+
+
 
 /* Route functionality */
 
+/**
+ * Initialize common route by loading settings,
+ * checking the session, and setting the timezone
+ */
+function initRoute() {
+	$conf	= loadConf();
+	\date_default_timezone_set( $conf['timezone'] );
+	sessionCheck();
+	
+	return $conf;
+}
+
+/**
+ * Adjust page mode
+ */
+function adjustMode( $args ) {
+	return isset( $args['mode'] ) ? 
+		strtolower( $args['mode'] ) : null;		
+}
 
 /**
  * Index/Homepage route
  */
-$index		=  
+$index		= 
 function() {
+	$conf	= initRoute();
 	$args	= func_get_args()[0];
-	$conf	= loadConf();
 	
 	$paths	= indexPaginate( $args, $conf );
 	$posts	= loadPosts( $paths );
@@ -2143,11 +2173,10 @@ function() {
  */
 $archive	= 
 function() {
+	$conf	= initRoute();
 	$args	= func_get_args()[0];
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
 	$paths	= archivePaginate( $args, $conf );
+	
 	if ( empty( $paths ) ) {
 		message( MSG_NOPOSTS );
 	}
@@ -2178,15 +2207,22 @@ function() {
 };
 
 /**
+ * Return a file attachment
+ */
+$download	= 
+function() {
+	$conf	= initRoute();
+	$args	= func_get_args()[0];
+	getAttach( $args, $conf );
+};
+
+/**
  * Reading a specific page
  */
 $reading	= 
-function() {
-	$args	= func_get_args()[0];
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
-	$post	= findPost( $args );
+function( $args, $conf ) {
+	$path	= exactPost( $args, false );
+	$post	= loadPost( $path );
 	if ( empty( $post ) ) {
 		message( MSG_NOTFOUND );
 	}
@@ -2197,10 +2233,8 @@ function() {
 		$npa = siblingPages( $pages, $args );
 	}
 	
-	$path	= exactPost( $args );
 	$pdate	= dateWithoutSlug( dateAndSlug( $path, $args ) );
 	$pdate	= date( $conf['date_format'], strtotime( $pdate ) );
-	
 	$ppath	= datePath( $post['slug'], strtotime( $pdate ) );
 	
 	$vars	= 
@@ -2223,59 +2257,12 @@ function() {
 	die();
 };
 
-/**
- * Return a file attachment
- */
-$download	= 
-function() {
-	$args	= func_get_args()[0];
-	$conf	= loadConf();
-	getAttach( $args, $conf );
-};
-
-/**
- * Edit/Create file and redirect to read it
- */
-$save		= 
-function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
-	authority();
-	
-	$data	= getPost( $conf );
-	if ( empty( $data ) ) {
-		message( MSG_FORMEXP, true );
-	}
-	
-	# Save as a draft first
-	$post	= savePost( $data[0], $data[1], true );
-	if ( $conf['allow_uploads'] ) {
-		saveUploads( $data[0], true );
-	}
-	
-	# If this is an actual draft, return to edit view
-	if ( $data[2] ) {
-		header( 'Location: /edit' . $post );
-	} else {
-		# If this is a publishing, move the draft contents
-		moveDraft( $data[0] );
-		header( 'Location: /read' . $post );
-	}
-	
-	die();
-};
 
 /**
  * Creating a new post
  */
 $creating	= 
-function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
-	authority();
-	
+function( $args, $conf ) {
 	$uptpl	= $conf['allow_uploads'] ?  
 		loadTpl( $conf, 'tpl_uploadfrag.html', true ) :
 		loadTpl( $conf, 'tpl_uploadfragoff.html', true );
@@ -2301,21 +2288,21 @@ function() {
  */
 $editing	= 
 function( $args, $conf ) {
-	$post	= findPost( $args );
+	$path	= exactPost( $args, false );
+	$post	= loadPost( $path );
 	if ( empty( $post ) ) {
-		$post = findPost( $args, true );
-		if ( empty( $post ) ) {
-			message( MSG_NOTFOUND, false, true );
+		$path	= exactPost( $args, true );
+		$post	= loadPost( $path );
+		if( empty( $post ) ) {
+			message( MSG_NOTFOUND );
 		}
 	}
-	
 	$edit	= base64_encode( 
 			$args['year'] . '/' . 
 			$args['month'] . '/' .
 			$args['day'] . '/' . 
 			$args['slug'] 
 		);
-	
 	$uptpl	= $conf['allow_uploads'] ?  
 		loadTpl( $conf, 'tpl_uploadfrag.html', true ) :
 		loadTpl( $conf, 'tpl_uploadfragoff.html', true );
@@ -2342,6 +2329,10 @@ function( $args, $conf ) {
 	die();
 };
 
+
+/**
+ * Browsing drafts
+ */
 $drafts		= 
 function( $args, $conf ) {
 	$paths	= indexPaginate( $args, $conf, 'drafts' );
@@ -2370,6 +2361,9 @@ function( $args, $conf ) {
 };
 
 
+/**
+ * Browsing posts marked for future publication
+ */
 $pending	= 
 function( $args, $conf ) {
 	$paths	= indexPaginate( $args, $conf, 'pending' );
@@ -2397,43 +2391,76 @@ function( $args, $conf ) {
 	die();
 };
 
-
 /**
  * Page view mode
  */
 $mode		=
-function() use ( $editing, $drafts, $pending ) {
+function() use ( $reading, $creating, $editing, $drafts, $pending ) {
+	$conf	= initRoute();
 	$args	= func_get_args()[0];
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
+	$mode	= adjustMode( $args );
 	
+	if ( $mode == 'read' ) {
+		return $reading( $args, $conf );
+	}
+	
+	# Ensure logged in authority
+	authority();
+	switch( $mode ) {
+		case 'new':
+			return $creating( $args, $conf );
+		
+		case 'edit':
+			return $editing( $args, $conf );
+		
+		case 'drafts':
+			return $drafts( $args, $conf );
+		
+		case 'pending':
+			return $pending( $args, $conf );
+	}
+};
+
+
+/**
+ * Edit/Create file and redirect to read it
+ */
+$save		= 
+function() {
+	$conf	= initRoute();
 	authority();
 	
-	switch( $args['mode'] ) {
-		case 'edit':
-			$editing( $args, $conf );
-			break;
-			
-		case 'drafts':
-			$drafts( $args, $conf );
-			break;
-			
-		case 'pending':
-			$pending( $args, $conf );
-			break;
+	$data	= getPost( $conf );
+	if ( empty( $data ) ) {
+		message( MSG_FORMEXP, true );
+	}
+	
+	# Save as a draft first
+	$post	= savePost( $data[0], $data[1], true );
+	if ( $conf['allow_uploads'] ) {
+		saveUploads( $data[0], true );
+	}
+	
+	# If this is an actual draft, return to edit view
+	if ( $data[2] ) {
+		header( 'Location: /edit' . $post );
+	} else {
+		# If this is a publishing, move the draft contents
+		moveDraft( $data[0] );
+		header( 'Location: /read' . $post );
 	}
 	
 	die();
 };
 
+
+
 /**
  * User login page
  */
-$loggingIn	= 
+$logging_in	= 
 function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
+	$conf	= initRoute();
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
@@ -2443,7 +2470,6 @@ function() {
 	
 	$tpl	= loadTpl( $conf, 'tpl_login.html' );
 	echo render( $vars, $tpl );
-	
 	die();
 };
 
@@ -2452,12 +2478,11 @@ function() {
  */
 $login		= 
 function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
+	$conf	= initRoute();
 	$data	= getLogin();
+	
 	if ( empty( $data ) ) {
-		message( MSG_LOGININV );
+		message( MSG_LOGININV, true );
 	}
 	
 	$stored	= $conf['password'];
@@ -2480,24 +2505,25 @@ function() {
  */
 $logout		= 
 function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
+	$conf = initRoute();
+	sessionCheck( true );
+	if ( !headers_sent() ) {
+		header( 'Location: /' );
+	}
 	
-	session( true );
 	message( MSG_LOGOUT, true );
 };
 
 /**
  * Management/Site settings page
  */
-$manage	= 
+$manage		= 
 function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
+	$conf = initRoute();
 	if ( !auth() ) {
 		message( MSG_LOGIN );
 	}
+	
 	$vars	= 
 	array(
 		'page_title'	=> $conf['title'],
@@ -2529,12 +2555,11 @@ function() {
  */
 $settings	=
 function() {
-	$conf	= loadConf();
-	\date_default_timezone_set( $conf['timezone'] );
-	
+	$conf = initRoute();
 	if ( !auth() ) {
 		message( MSG_LOGIN );
 	}
+	
 	$data	= getSettings( $conf );
 	if ( empty( $data ) ) {
 		endf( 'No settings found' );
@@ -2569,19 +2594,39 @@ function() {
 		message( MSG_PASSCH, false, true );
 		
 	} else {
-		message( 'Passwords did not match', true );
+		message( MSG_LOGININV, true );
 	}
 };
 
 
-/* Site routes */
+/**
+ * Routing placecholders
+ */
+$markers = 
+array(
+	'*'	=> '(?<all>.+?)',
+	':page'	=> '(?<page>[1-9][0-9]*)',
+	':year'	=> '(?<year>[2][0-9]{3})',
+	':month'=> '(?<month>[0-3][0-9]{1})',
+	':day'	=> '(?<day>[0-9][0-9]{1})',
+	':slug'	=> '(?<slug>[\pL\-\d]{1,100})',
+	':mode'	=> '(?<mode>new|read|edit|drafts|pending)',
+	':file'	=> '(?<file>[\pL_\-\d\.\s]{1,120})'
+);
 
-$routes = array(
-	array( 'get', '', $index ), 
-	array( 'get', 'page:page', $index ), 
+/**
+ * Site routes
+ */
+$routes	= array(
+	# Main index
+	array( 'get',	'', $index ),
+	array( 'get',	'page:page', $index ),
+	
+	# Specific page view mode
 	array( 'get', ':mode', $mode ), 
 	array( 'get', ':mode/page:page', $mode ), 
 	
+	# Browsing archive by date
 	array( 'get', ':year', $archive ), 
 	array( 'get', ':year/page:page', $archive ), 
 	
@@ -2591,22 +2636,20 @@ $routes = array(
 	array( 'get', ':year/:month/:day', $archive ),
 	array( 'get', ':year/:month/:day/page:page', $archive ),
 	
-	array( 'get', 'read/:year/:month/:day/:slug', $reading ), 
-	array( 'get', ':mode/:year/:month/:day/:slug/:file', $download ), 
+	# Browsing pages
 	array( 'get', ':mode/:year/:month/:day/:slug', $mode ),
-	array( 'post', 'edit', $save ),
+	array( 'get', ':mode/:year/:month/:day/:slug/:file', $download ), 
 	
-	array( 'get', 'new', $creating ),
-	array( 'post', 'new', $save ),
+	# Site access
+	array( 'get',	'login', $logging_in ),
+	array( 'post',	'login', $login ),
 	
-	array( 'get', 'login', $loggingIn ),
-	array( 'post', 'login', $login ),
+	array( 'get',	'logout', $login ),
 	
-	array( 'get', 'logout', $logout ),
-	
+	# Management paths
 	array( 'get', 'manage', $manage ),
 	array( 'post', 'settings', $settings ),
 	array( 'post', 'changepass', $passChanged )
 );
 
-route( $routes );
+route( $routes, $markers );
