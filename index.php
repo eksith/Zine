@@ -840,7 +840,8 @@ function embeds( $html ) {
 		=> 
 		'<div class="media"><iframe src="https://player.vimeo.com/video/$1?portrait=0" width="500" height="281" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe></div>',
 		
-		'/\[vimeo http(s)?\:\/\/(www)?\.?vimeo\.com\/([0-9]*)\]/is'=> 
+		'/\[vimeo http(s)?\:\/\/(www)?\.?vimeo\.com\/([0-9]*)\]/is'
+		=> 
 		'<div class="media"><iframe src="https://player.vimeo.com/video/$3?portrait=0" width="500" height="281" frameborder="0" webkitallowfullscreen mozallowfullscreen allowfullscreen></iframe></div>'
 	);
 	
@@ -951,17 +952,7 @@ function markdown( $html, $prefix = '' ) {
 		}
 	);
 	
-	if ( exists( 'preg_replace_callback_array' ) ) {
-		return
-		trim( preg_replace_callback_array( $filters, $html ) );
-	}
-	
-	foreach( $filters as $regex => $handler ) {
-		$html =	preg_replace_callback( 
-				$regex, $handler, $html
-			);
-	}
-	return trim( $html );
+	return trim( preg_replace_callback_array( $filters, $html ) );
 }
 
 
