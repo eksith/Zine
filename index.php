@@ -458,6 +458,8 @@ function signature() {
 	foreach ( $headers as $k => $v ) {
 		$match .= $v[0];
 	}
+	
+	return $match;
 }
 
 /**
