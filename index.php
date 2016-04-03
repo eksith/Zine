@@ -2593,7 +2593,7 @@ function() {
 
 
 /**
- * Routing placecholders
+ * Routing placeholders
  */
 $markers = 
 array(
