@@ -1,5 +1,7 @@
 <?php
-
+error_reporting( -1 ); 
+ini_set( 'display_errors',			1); 
+ini_set( 'display_startup_errors',		1 );
 /**
  * Zine
  */
@@ -1949,7 +1951,7 @@ function loadFile( $name ) {
 	if ( file_exists( $name ) ) {
 		$data = file_get_contents( $name );
 		if ( false !== strpos( $data, '<?' ) ) {
-			endf( MSG_SSDETCT );
+			endf( MSG_SSDETECT );
 		}
 		return $data;
 		
