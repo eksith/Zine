@@ -1,3 +1,6 @@
+### Update: This project is no longer maintained
+However, it has a [spiritual successor](https://github.com/cypnk/Bare).
+
 # Zine
 A simple, single-file script to quickly create posts
 
@@ -54,7 +57,6 @@ E.G. To embed an uploaded image file, use markdown syntax:
   - PHP 5.6 or greater ( 7+ preferable )  
   - Web server that allows friendly URLs ( Apache .htaccess provided )  
   - Read and write permissions to the storage folder
-
 
 ## Purpose
 
